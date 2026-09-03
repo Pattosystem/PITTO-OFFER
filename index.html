@@ -222,15 +222,15 @@ svg.chart text{font-size:10px;fill:var(--muted)}
    aiEndpoint は Supabase Edge Function 等のプロキシURL。空ならローカル
    テンプレート生成を使う（ブラウザに生のAPIキーは置かない方針）。       */
 const CONFIG = {
-  supabaseUrl:    '',
-  supabaseAnonKey:'',
+  supabaseUrl:    'https://egkstxbzsktmpsfhhteu.supabase.co',
+  supabaseAnonKey:'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVna3N0eGJ6c2t0bXBzZmhodGV1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg0MjA0NzEsImV4cCI6MjEwMzk5NjQ3MX0.vDOIUT9cJ6_6-MjViiP2j1KJWYUaCk0n03wnyEtTO0o',
   aiEndpoint:     '',
   company: {
     name:'リアス株式会社',
     dept:'営業部',
-    tel:'06-0000-0000',
-    email:'info@example.co.jp',
-    addr:'大阪府大阪市西区'
+    tel:'06-0000-0000',        // ← 提案書に出ます。差し替えてください
+    email:'info@example.co.jp', // ← 同上
+    addr:'大阪府大阪市西区'      // ← 同上
   }
 };
 
