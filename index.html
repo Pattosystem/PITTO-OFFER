@@ -636,6 +636,10 @@ function metrics(cid,pid){
 function customerOrders(cid){
   return S.t.orders.filter(o=>o.customer_id===cid).map(o=>o.order_date).sort();
 }
+function lastOrderNo(cid){
+  const os=S.t.orders.filter(o=>o.customer_id===cid).sort((a,b)=>a.order_date<b.order_date?1:-1);
+  return os[0]?.order_no || '';
+}
 
 /* --- 抽出 --- */
 function buildWatch(){
@@ -656,8 +660,8 @@ function buildWatch(){
     // 1回だけ
     if(orders===1 && dsl>=P.single_days){
       out.push({kind:'single', customer_id:c.id, product_id:null,
-        last_date:cs.lastDate, days_since:dsl, orders:1,
-        amount:cs.total, note:`${jdate(cs.lastDate)}に1回のみ・${yen(cs.total)}`});
+        last_date:cs.lastDate, days_since:dsl, orders:1, last_order_no:lastOrderNo(c.id),
+        amount:cs.total, note:`${jdate(cs.lastDate)}に1回のみ（受注番号 ${lastOrderNo(c.id)}）・${yen(cs.total)}`});
       continue;
     }
 
@@ -666,7 +670,7 @@ function buildWatch(){
     if(stoppedCust){
       const ints=[]; for(let i=1;i<dates.length;i++) ints.push(days(dates[i],dates[i-1]));
       out.push({kind:'stopped_customer', customer_id:c.id, product_id:null,
-        last_date:cs.lastDate, days_since:dsl, orders,
+        last_date:cs.lastDate, days_since:dsl, orders, last_order_no:lastOrderNo(c.id),
         avg_interval: ints.length?Math.round(avg(ints)):null,
         amount:cs.total12,
         note:`${orders}回の取引があり、平均${ints.length?Math.round(avg(ints)):'—'}日間隔。最終注文から${dsl}日。`});
@@ -681,7 +685,7 @@ function buildWatch(){
       if(!stoppedCust && dsl<=P.stop_days && m.dsl>=P.stop_days
          && m.cnt>=P.stop_min_orders && span>=P.min_history_days){
         out.push({kind:'stopped_product', customer_id:c.id, product_id:p.id,
-          last_date:m.last.date, days_since:m.dsl, orders:m.cnt,
+          last_date:m.last.date, days_since:m.dsl, orders:m.cnt, last_order_no:m.last.order_no,
           avg_interval:m.avgInt?Math.round(m.avgInt):null,
           avg_qty:Math.round(m.avgQty), amount:m.amt12,
           note:`${m.cnt}回購入（平均${num(Math.round(m.avgQty))}${unitOf(p)}／回）。この商品は${m.dsl}日、他の商品は${dsl}日前に注文あり。`});
@@ -690,16 +694,16 @@ function buildWatch(){
       // その商品を1回だけ買ってそれきり
       if(!stoppedCust && m.cnt===1 && m.dsl>=P.single_days){
         out.push({kind:'single', customer_id:c.id, product_id:p.id,
-          last_date:m.last.date, days_since:m.dsl, orders:1,
+          last_date:m.last.date, days_since:m.dsl, orders:1, last_order_no:m.last.order_no,
           avg_qty:Math.round(m.avgQty), amount:m.ev[0].amount,
-          note:`${jdate(m.last.date)}に${num(m.ev[0].qty)}${unitOf(p)}を1回のみ。以降${m.dsl}日、再注文なし。`});
+          note:`${jdate(m.last.date)}に${num(m.ev[0].qty)}${unitOf(p)}を1回のみ（受注番号 ${m.ev[0].order_no}）。以降${m.dsl}日、再注文なし。`});
       }
 
       // 数量が減った
       if(m.cnt>=3 && m.prevAvgQty && m.dsl<=90 && span>=P.min_history_days
          && m.last2AvgQty < m.prevAvgQty*P.decrease_ratio){
         out.push({kind:'decreasing', customer_id:c.id, product_id:p.id,
-          last_date:m.last.date, days_since:m.dsl, orders:m.cnt,
+          last_date:m.last.date, days_since:m.dsl, orders:m.cnt, last_order_no:m.last.order_no,
           avg_qty:Math.round(m.prevAvgQty), recent_qty:Math.round(m.last2AvgQty),
           amount:m.amt12,
           note:`直近2回の平均${num(Math.round(m.last2AvgQty))}${unitOf(p)}。以前の平均は${num(Math.round(m.prevAvgQty))}${unitOf(p)}。`});
@@ -814,11 +818,12 @@ function render(){
 /* --- 小物 --- */
 function dashWatchTable(list){
   if(!list.length) return `<div class="empty">該当する先はありません</div>`;
-  return `<table class="t"><thead><tr><th>施設名</th><th>担当</th><th>最終注文</th><th class="num">経過</th>
+  return `<table class="t"><thead><tr><th>施設名</th><th>担当</th><th>最終注文 / 受注番号</th><th class="num">経過</th>
     <th class="num">注文回数</th><th class="num">取引金額</th><th></th></tr></thead><tbody>
   ${list.map(r=>{ const cu=byId(S.t.customers,r.customer_id);
     return `<tr><td><button class="link" onclick="go('customer',{id:'${cu.id}'})">${esc(cu.name)}</button></td>
-      <td class="w">${esc(userName(cu.sales_owner_id))}</td><td class="w">${r.last_date}</td>
+      <td class="w">${esc(userName(cu.sales_owner_id))}</td>
+      <td class="w">${r.last_date}<div class="hint">${esc(r.last_order_no||'')}</div></td>
       <td class="num"><b>${r.days_since}</b>日</td><td class="num">${num(r.orders)}</td>
       <td class="num">${yen(r.amount)}</td>
       <td class="w">${CAN.edit()?`<button class="btn sm" onclick="newPlan('individual','${cu.id}')">提案書を作る</button>`:''}</td></tr>`;
@@ -842,11 +847,12 @@ function chartBars(months, values, opt={}){
 }
 function dashWatchTable(list){
   if(!list.length) return `<div class="empty">該当する先はありません</div>`;
-  return `<table class="t"><thead><tr><th>施設名</th><th>担当</th><th>最終注文</th><th class="num">経過</th>
+  return `<table class="t"><thead><tr><th>施設名</th><th>担当</th><th>最終注文 / 受注番号</th><th class="num">経過</th>
     <th class="num">注文回数</th><th class="num">取引金額</th><th></th></tr></thead><tbody>
   ${list.map(r=>{ const cu=byId(S.t.customers,r.customer_id);
     return `<tr><td><button class="link" onclick="go('customer',{id:'${cu.id}'})">${esc(cu.name)}</button></td>
-      <td class="w">${esc(userName(cu.sales_owner_id))}</td><td class="w">${r.last_date}</td>
+      <td class="w">${esc(userName(cu.sales_owner_id))}</td>
+      <td class="w">${r.last_date}<div class="hint">${esc(r.last_order_no||'')}</div></td>
       <td class="num"><b>${r.days_since}</b>日</td><td class="num">${num(r.orders)}</td>
       <td class="num">${yen(r.amount)}</td>
       <td class="w">${CAN.edit()?`<button class="btn sm" onclick="newPlan('individual','${cu.id}')">提案書を作る</button>`:''}</td></tr>`;
@@ -1002,7 +1008,7 @@ function watchTable(list){
   const perProduct = ['stopped_product','decreasing','single'].includes(WF.kind);
   return `<table class="t sticky-h"><thead><tr>
     <th>施設名</th><th>担当</th>${perProduct?'<th>商品</th>':''}
-    <th>最終注文</th><th class="num">経過</th><th class="num">注文回数</th>
+    <th>最終注文 / 受注番号</th><th class="num">経過</th><th class="num">注文回数</th>
     ${WF.kind==='decreasing'?'<th class="num">以前の数量</th><th class="num">直近の数量</th>':''}
     ${WF.kind==='stopped_customer'?'<th class="num">平均間隔</th>':''}
     <th class="num">取引金額</th><th>内容</th><th></th></tr></thead><tbody>
@@ -1014,7 +1020,7 @@ function watchTable(list){
         <div class="hint">${esc(cu.pref||'')}</div></td>
       <td class="w">${esc(userName(cu.sales_owner_id))}</td>
       ${perProduct?`<td>${p?esc(p.name):'<span class="hint">取引全体</span>'}</td>`:''}
-      <td class="w">${r.last_date}</td>
+      <td class="w">${r.last_date}<div class="hint">${esc(r.last_order_no||'')}</div></td>
       <td class="num"><b>${r.days_since}</b>日</td>
       <td class="num">${num(r.orders)}</td>
       ${WF.kind==='decreasing'?`<td class="num">${num(r.avg_qty)}</td><td class="num"><b>${num(r.recent_qty)}</b></td>`:''}
@@ -1099,22 +1105,48 @@ VIEWS.customer = function(){
       <th class="num">12ヶ月計</th><th>最終購入</th><th></th></tr></thead><tbody>
     ${prods.map(s=>{
       const p=byId(S.t.products,s.product_id); if(!p) return '';
-      const row=ms.map(m=>s.months.get(m)?.qty||0);
+      const cells=ms.map(m=>{
+        const evs=s.events.filter(e=>ymOf(e.date)===m);
+        return {qty:sum(evs.map(e=>e.qty)), tip:evs.map(e=>`${e.order_no}　${e.date}　${num(e.qty)}`).join('\n')};
+      });
       const last=s.events[s.events.length-1];
-      return `<tr><td>${esc(p.name)}<div class="hint">${esc(p.sku)}</div></td>
-        ${row.map(v=>`<td class="num">${v?num(v):'<span class="hint">—</span>'}</td>`).join('')}
-        <td class="num"><b>${num(sum(row))}</b></td>
-        <td class="w">${last.date}<div class="hint">${days(TODAY,last.date)}日前</div></td>
+      return `<tr><td>${esc(p.name)}<div class="hint">${esc(p.sku||'')}</div></td>
+        ${cells.map(x=>x.qty?`<td class="num" title="${esc(x.tip)}" style="cursor:help">${num(x.qty)}</td>`
+                           :'<td class="num"><span class="hint">—</span></td>').join('')}
+        <td class="num"><b>${num(sum(cells.map(x=>x.qty)))}</b></td>
+        <td class="w">${last.date}<div class="hint">${esc(last.order_no||'')}</div></td>
         <td class="w">${CAN.edit()?`<button class="btn sm ghost" onclick="newPlan('individual','${c.id}','${p.id}')">提案</button>`:''}</td></tr>`;
     }).join('') || `<tr><td colspan="${ms.length+4}"><div class="empty">購入実績がありません</div></td></tr>`}
     </tbody></table></div></div></div>
+
+  <div class="card"><h2>注文明細<span class="r"><span class="hint">新しい順</span></span></h2><div class="body tight"><div class="scroll" style="max-height:460px">
+    ${(()=>{
+      const orders=S.t.orders.filter(o=>o.customer_id===c.id).sort((a,b)=>a.order_date<b.order_date?1:-1);
+      const lines=[];
+      for(const o of orders) for(const it of S.t.order_items.filter(x=>x.order_id===o.id))
+        lines.push({o,it});
+      if(!lines.length) return '<div class="empty">注文がありません</div>';
+      return `<table class="t sticky-h"><thead><tr><th>注文日</th><th>受注番号</th><th>商品</th>
+        <th class="num">数量</th><th class="num">単価</th><th class="num">金額</th></tr></thead><tbody>
+      ${lines.slice(0,300).map(({o,it})=>{
+        const p=byId(S.t.products,it.product_id);
+        return `<tr><td class="w">${o.order_date}<div class="hint">${days(TODAY,o.order_date)}日前</div></td>
+          <td class="w">${esc(o.order_no)}</td>
+          <td>${esc(p?.name||'—')}</td>
+          <td class="num">${num(it.qty)}${esc(p?.unit||'')}</td>
+          <td class="num">${yen(it.unit_price)}</td>
+          <td class="num">${yen(it.amount)}</td></tr>`;
+      }).join('')}</tbody></table>
+      ${lines.length>300?`<p class="hint" style="padding:8px 14px">新しい300件を表示しています（全${lines.length}件）</p>`:''}`;
+    })()}
+  </div></div></div>
 
   <div class="grid g2">
     <div class="card"><h2>気になる点</h2><div class="body tight"><div class="scroll">
       ${watch.length?`<table class="t"><thead><tr><th>区分</th><th>商品</th><th>最終注文</th><th>内容</th></tr></thead><tbody>
       ${watch.map(x=>`<tr><td class="w"><span class="tag warn">${KINDS[x.kind].name}</span></td>
         <td>${x.product_id?esc(prodName(x.product_id)):'<span class="hint">取引全体</span>'}</td>
-        <td class="w">${x.last_date}<div class="hint">${x.days_since}日前</div></td>
+        <td class="w">${x.last_date}<div class="hint">${x.days_since}日前${x.last_order_no?'／'+esc(x.last_order_no):''}</div></td>
         <td style="font-size:12.5px">${esc(x.note)}</td></tr>`).join('')}
       </tbody></table>`:'<div class="empty">とくにありません</div>'}
     </div></div></div>
