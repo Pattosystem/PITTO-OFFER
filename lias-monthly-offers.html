@@ -1,0 +1,2476 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LIAS 単月提案プラン管理</title>
+<style>
+:root{
+  --ink:#14202A; --ink-2:#3D4C58; --muted:#6B7A87;
+  --paper:#EDF0F3; --surface:#FFFFFF; --surface-2:#F6F8FA;
+  --line:#D5DCE3; --line-strong:#A8B4BE;
+  --accent:#0F6E5C; --accent-ink:#0A4F42; --accent-soft:#E3F0EC;
+  --sig-s:#B3321E; --sig-a:#B07514; --sig-b:#4A6B84;
+  --warn:#B3321E; --warn-soft:#FBEAE7;
+  --ok:#0F6E5C;
+  --r:4px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:var(--paper); color:var(--ink);
+  font-family:"Hiragino Kaku Gothic ProN","Hiragino Sans","Yu Gothic Medium","Yu Gothic","Noto Sans JP",Meiryo,sans-serif;
+  font-size:14px; line-height:1.65; -webkit-font-smoothing:antialiased;
+}
+input,select,textarea,button{font-family:inherit;font-size:14px;color:inherit}
+table{font-variant-numeric:tabular-nums}
+.num{font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+a{color:var(--accent-ink)}
+
+/* ---------- layout ---------- */
+#app{display:flex;min-height:100vh}
+#nav{
+  width:208px;flex:0 0 208px;background:var(--ink);color:#C3CED7;
+  display:flex;flex-direction:column;position:sticky;top:0;height:100vh;
+}
+#nav .brand{padding:18px 16px 14px;border-bottom:1px solid #253340}
+#nav .brand b{display:block;color:#fff;font-size:15px;letter-spacing:.02em}
+#nav .brand span{display:block;font-size:11px;color:#7D8D9A;margin-top:2px}
+#nav nav{flex:1;overflow:auto;padding:8px 0}
+#nav .grp{padding:12px 16px 4px;font-size:11px;color:#65757F}
+#nav a.item{
+  display:flex;align-items:center;gap:8px;justify-content:space-between;
+  padding:7px 16px;color:#C3CED7;text-decoration:none;border-left:3px solid transparent;cursor:pointer
+}
+#nav a.item:hover{background:#1C2A35;color:#fff}
+#nav a.item.on{background:#1C2A35;color:#fff;border-left-color:var(--accent);font-weight:700}
+#nav .badge{background:#2E3D49;color:#DCE5EB;border-radius:9px;padding:0 7px;font-size:11px;line-height:18px;min-width:20px;text-align:center}
+#nav a.item.on .badge{background:var(--accent);color:#fff}
+#nav .me{border-top:1px solid #253340;padding:10px 16px;font-size:12px;color:#8FA0AC}
+#nav .me b{color:#fff;display:block;font-size:13px}
+#nav .me button{margin-top:6px;background:none;border:1px solid #3A4A56;color:#A9B8C2;border-radius:var(--r);padding:3px 8px;font-size:11px;cursor:pointer}
+
+#main{flex:1;min-width:0;display:flex;flex-direction:column}
+header.top{
+  background:var(--surface);border-bottom:1px solid var(--line);
+  padding:14px 24px;display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap;position:sticky;top:0;z-index:20
+}
+header.top h1{margin:0;font-size:19px;letter-spacing:-.01em}
+header.top .sub{color:var(--muted);font-size:12.5px;margin-left:auto}
+main{padding:20px 24px 64px;max-width:1560px;width:100%}
+
+/* ---------- primitives ---------- */
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);margin-bottom:16px}
+.card>h2{margin:0;padding:11px 14px;font-size:14px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px}
+.card>h2 .r{margin-left:auto;display:flex;gap:8px;align-items:center;font-weight:400}
+.card .body{padding:14px}
+.card .body.tight{padding:0}
+.grid{display:grid;gap:16px}
+.g2{grid-template-columns:repeat(2,minmax(0,1fr))}
+.g3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.g4{grid-template-columns:repeat(4,minmax(0,1fr))}
+@media(max-width:1100px){.g4{grid-template-columns:repeat(2,minmax(0,1fr))}.g3,.g2{grid-template-columns:1fr}}
+
+button.btn{
+  background:var(--accent);color:#fff;border:1px solid var(--accent);border-radius:var(--r);
+  padding:6px 14px;cursor:pointer;font-weight:700;transition:background .12s
+}
+button.btn:hover{background:var(--accent-ink)}
+button.btn.ghost{background:#fff;color:var(--ink);border-color:var(--line-strong);font-weight:400}
+button.btn.ghost:hover{background:var(--surface-2)}
+button.btn.danger{background:#fff;color:var(--warn);border-color:#E2B7AF}
+button.btn.danger:hover{background:var(--warn-soft)}
+button.btn:disabled{opacity:.45;cursor:not-allowed}
+button.btn.sm{padding:3px 9px;font-size:12.5px;font-weight:400}
+button.link{background:none;border:none;color:var(--accent-ink);cursor:pointer;padding:0;text-decoration:underline;font-size:inherit}
+
+input[type=text],input[type=number],input[type=date],input[type=password],select,textarea{
+  border:1px solid var(--line-strong);border-radius:var(--r);padding:5px 8px;background:#fff;width:100%
+}
+input:focus,select:focus,textarea:focus{outline:2px solid var(--accent);outline-offset:-1px;border-color:var(--accent)}
+textarea{min-height:70px;line-height:1.6;resize:vertical}
+label.f{display:block;margin-bottom:10px}
+label.f>span{display:block;font-size:12.5px;color:var(--ink-2);margin-bottom:3px}
+.hint{font-size:12px;color:var(--muted)}
+fieldset{border:1px solid var(--line);border-radius:var(--r);padding:12px;margin:0 0 14px}
+fieldset legend{font-size:12.5px;color:var(--ink-2);padding:0 6px}
+
+table.t{width:100%;border-collapse:collapse}
+table.t th{
+  text-align:left;font-size:12px;color:var(--ink-2);font-weight:700;
+  padding:8px 10px;border-bottom:2px solid var(--ink);white-space:nowrap;background:var(--surface)
+}
+table.t td{padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+table.t tbody tr:hover{background:var(--surface-2)}
+table.t tr.sel{background:var(--accent-soft)}
+table.t .w{white-space:nowrap}
+.scroll{overflow:auto;max-width:100%}
+.sticky-h th{position:sticky;top:0;z-index:5}
+
+.pri{display:inline-block;min-width:22px;text-align:center;border-radius:2px;font-weight:700;font-size:12px;padding:1px 6px}
+.pri.S{background:var(--sig-s);color:#fff}
+.pri.A{background:#fff;color:var(--sig-a);border:1px solid var(--sig-a)}
+.pri.B{background:#fff;color:var(--sig-b);border:1px solid var(--sig-b)}
+.tag{display:inline-block;border:1px solid var(--line-strong);border-radius:2px;padding:0 6px;font-size:11.5px;color:var(--ink-2);background:#fff;white-space:nowrap}
+.tag.on{background:var(--accent-soft);border-color:var(--accent);color:var(--accent-ink)}
+.tag.warn{background:var(--warn-soft);border-color:#E2B7AF;color:var(--warn)}
+.tag.mut{color:var(--muted)}
+.kpi{padding:12px 14px}
+.kpi .n{font-size:26px;font-weight:700;letter-spacing:-.02em;line-height:1.25;font-variant-numeric:tabular-nums}
+.kpi .l{font-size:12.5px;color:var(--muted)}
+.kpi .d{font-size:12px;color:var(--ink-2);margin-top:4px}
+.bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+.bar .sp{flex:1}
+.evidence{background:var(--surface-2);border-left:3px solid var(--line-strong);padding:8px 10px;font-size:12.5px;border-radius:0 var(--r) var(--r) 0}
+.ai{background:#FBFCFD;border:1px solid var(--line);border-radius:var(--r);padding:10px 12px}
+.ai .lbl{font-size:11.5px;color:var(--muted);margin-bottom:2px}
+.empty{padding:34px 14px;text-align:center;color:var(--muted)}
+.empty b{display:block;color:var(--ink);font-size:15px;margin-bottom:4px}
+.alert{border:1px solid #E2B7AF;background:var(--warn-soft);color:#7C2415;padding:9px 12px;border-radius:var(--r);margin-bottom:12px;font-size:13px}
+.alert.ok{border-color:#A9CDC3;background:var(--accent-soft);color:var(--accent-ink)}
+.dl{display:grid;grid-template-columns:auto 1fr;gap:2px 14px;font-size:13px}
+.dl dt{color:var(--muted)}
+.dl dd{margin:0}
+
+/* modal / toast */
+#modal{position:fixed;inset:0;background:rgba(16,26,34,.5);display:none;align-items:flex-start;justify-content:center;z-index:60;overflow:auto;padding:40px 16px}
+#modal.on{display:flex}
+#modal .box{background:#fff;border-radius:var(--r);width:100%;max-width:760px;border:1px solid var(--line)}
+#modal .box>h3{margin:0;padding:12px 16px;border-bottom:1px solid var(--line);font-size:15px;display:flex}
+#modal .box>h3 button{margin-left:auto;background:none;border:none;font-size:18px;cursor:pointer;color:var(--muted);line-height:1}
+#modal .box .c{padding:16px}
+#modal .box .f{padding:12px 16px;border-top:1px solid var(--line);display:flex;gap:8px;justify-content:flex-end}
+#toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(8px);background:var(--ink);color:#fff;
+  padding:9px 18px;border-radius:var(--r);z-index:80;opacity:0;pointer-events:none;transition:opacity .18s,transform .18s;font-size:13px}
+#toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
+
+/* login */
+#login{min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--ink)}
+#login .box{background:#fff;border-radius:var(--r);width:360px;padding:26px;border-top:4px solid var(--accent)}
+#login h1{margin:0 0 2px;font-size:19px}
+#login p{margin:0 0 18px;color:var(--muted);font-size:12.5px}
+
+/* chart */
+svg.chart{display:block;width:100%;height:auto}
+svg.chart text{font-size:10px;fill:var(--muted)}
+
+/* proposal (印刷) */
+.sheet{background:#fff;border:1px solid var(--line);border-radius:var(--r);padding:34px 38px;max-width:820px;margin:0 auto;color:#101820}
+.sheet h2.title{font-size:21px;margin:0 0 4px;letter-spacing:.02em}
+.sheet .to{font-size:17px;margin:22px 0 4px}
+.sheet .lead{font-size:13px;line-height:1.9;margin:14px 0 20px;white-space:pre-wrap}
+.sheet table.p{width:100%;border-collapse:collapse;margin:10px 0 18px}
+.sheet table.p th,.sheet table.p td{border:1px solid #B9C4CC;padding:7px 10px;font-size:13px}
+.sheet table.p th{background:#F0F3F5;text-align:left;white-space:nowrap}
+.sheet .foot{margin-top:26px;border-top:1px solid #B9C4CC;padding-top:12px;font-size:12.5px;line-height:1.8}
+.sheet .note{font-size:12px;color:#43525E;line-height:1.8}
+@media print{
+  #nav,header.top,.noprint{display:none !important}
+  body{background:#fff}
+  main{padding:0}
+  .sheet{border:none;border-radius:0;padding:0;max-width:none}
+  @page{size:A4;margin:16mm}
+}
+@media(max-width:820px){
+  #app{flex-direction:column}
+  #nav{width:100%;flex:none;height:auto;position:static}
+  #nav nav{display:flex;flex-wrap:wrap;padding:4px}
+  #nav .grp{display:none}
+  #nav a.item{border-left:none;border-bottom:3px solid transparent;padding:6px 10px}
+  #nav a.item.on{border-left:none;border-bottom-color:var(--accent)}
+  main{padding:14px}
+}
+@media(prefers-reduced-motion:reduce){*{transition:none !important;animation:none !important}}
+</style>
+</head>
+<body>
+<div id="login" style="display:none">
+  <div class="box">
+    <h1>単月提案プラン管理</h1>
+    <p>リアス株式会社</p>
+    <label class="f"><span>利用者</span><select id="loginUser"></select></label>
+    <label class="f"><span>パスワード</span><input type="password" id="loginPw" placeholder="デモは空欄のまま"></label>
+    <button class="btn" style="width:100%" id="loginBtn">ログイン</button>
+    <p style="margin-top:14px" id="loginMode"></p>
+  </div>
+</div>
+
+<div id="app" style="display:none">
+  <aside id="nav">
+    <div class="brand"><b>単月提案プラン</b><span>LIAS / 提案管理</span></div>
+    <nav id="navList"></nav>
+    <div class="me" id="me"></div>
+  </aside>
+  <div id="main">
+    <header class="top"><h1 id="pageTitle">ダッシュボード</h1><div class="sub" id="pageSub"></div></header>
+    <main id="view"></main>
+  </div>
+</div>
+
+<div id="modal"><div class="box"><h3><span id="mTitle"></span><button onclick="closeModal()">&times;</button></h3><div class="c" id="mBody"></div><div class="f" id="mFoot"></div></div></div>
+<div id="toast"></div>
+<script>
+/* =========================================================================
+   LIAS 単月提案プラン管理システム
+   仕様書 v1.0 (2026-09-03) Phase 1 実装
+   単一HTMLファイル / GitHub Pages + Supabase 構成
+   ========================================================================= */
+
+/* ---- 1. 接続設定 ------------------------------------------------------
+   supabaseUrl / supabaseAnonKey を入れると本番モード（永続化）。
+   空のままだとデモモード（ブラウザのメモリ上でサンプルデータが動く）。
+   aiEndpoint は Supabase Edge Function 等のプロキシURL。空ならローカル
+   テンプレート生成を使う（ブラウザに生のAPIキーは置かない方針）。       */
+const CONFIG = {
+  supabaseUrl:    '',
+  supabaseAnonKey:'',
+  aiEndpoint:     '',
+  company: {
+    name:'リアス株式会社',
+    dept:'営業部',
+    tel:'06-0000-0000',
+    email:'info@example.co.jp',
+    addr:'大阪府大阪市西区'
+  }
+};
+
+/* ---- 2. 既定パラメータ（§23。設定画面から変更可） ---------------------- */
+const DEFAULT_SETTINGS = {
+  r01_dormant_days: 60,     // 購入停止と見なす日数
+  r01_min_orders: 3,        // 過去6ヶ月の最低購入回数
+  r02_interval_mult: 1.5,   // 平均購入間隔の何倍で頻度低下
+  r03_qty_ratio: 0.6,       // 数量減少の閾値
+  r04_amount_ratio: 0.5,    // 売上減少の閾値
+  r05_dormant_days: 60,     // 商品単位離反の判定日数
+  r06_dormant_days: 90,     // 休眠復活の判定日数
+  r07_single_days: 45,      // 単発後停止の判定日数
+  r08_window_days: 14,      // 次回購入予測の許容幅
+  r09_streak: 3,            // 数量アップ判定の連続回数
+  r10_min_orders: 3,        // クロスセル判定の主商品購入回数
+  score_s: 80, score_a: 60, score_b: 40,
+  min_margin_rate: 0.20,    // 最低粗利率（下回ると承認必須）
+  remind_days: 7,           // 送付後リマインド日数
+  resuggest_block_days: 30, // 同一商品の再提案抑制
+  stopped_block_days: 180,  // 「使用中止」失注後の抑制
+  max_per_customer: 3       // 顧客あたり標準表示件数
+};
+
+/* ---- 3. ユーティリティ ------------------------------------------------ */
+const $  = (s,r=document)=>r.querySelector(s);
+const $$ = (s,r=document)=>[...r.querySelectorAll(s)];
+const uid = ()=> (crypto.randomUUID ? crypto.randomUUID()
+  : 'id-'+Date.now().toString(36)+Math.random().toString(36).slice(2,9));
+const esc = s => String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const yen = n => (n==null||isNaN(n)) ? '—' : '¥'+Math.round(n).toLocaleString('ja-JP');
+const num = n => (n==null||isNaN(n)) ? '—' : Math.round(n).toLocaleString('ja-JP');
+const pct = (n,d=1) => (n==null||isNaN(n)) ? '—' : (n*100).toFixed(d)+'%';
+const TODAY = new Date(); TODAY.setHours(0,0,0,0);
+const d2s = d => { const x=new Date(d); return x.getFullYear()+'-'+String(x.getMonth()+1).padStart(2,'0')+'-'+String(x.getDate()).padStart(2,'0'); };
+const s2d = s => { const [y,m,d]=String(s).split('-').map(Number); return new Date(y,m-1,d||1); };
+const ymOf = s => String(s).slice(0,7);
+const days = (a,b)=> Math.round((s2d(d2s(a))-s2d(d2s(b)))/86400000);
+const addDays = (d,n)=>{ const x=new Date(d); x.setDate(x.getDate()+n); return x; };
+const addMonths = (d,n)=>{ const x=new Date(d); x.setMonth(x.getMonth()+n); return x; };
+const jdate = s => s ? `${s2d(s).getFullYear()}年${s2d(s).getMonth()+1}月${s2d(s).getDate()}日` : '';
+const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
+const sum = a => a.reduce((x,y)=>x+(y||0),0);
+const avg = a => a.length ? sum(a)/a.length : 0;
+const byId = (arr,id)=> arr.find(x=>x.id===id);
+const groupBy = (arr,fn)=>{ const m=new Map(); for(const x of arr){ const k=fn(x); if(!m.has(k)) m.set(k,[]); m.get(k).push(x);} return m; };
+
+function toast(msg,ms=2400){ const t=$('#toast'); t.textContent=msg; t.classList.add('on'); clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove('on'),ms); }
+function openModal(title,html,footHtml){ $('#mTitle').textContent=title; $('#mBody').innerHTML=html; $('#mFoot').innerHTML=footHtml||'<button class="btn ghost" onclick="closeModal()">閉じる</button>'; $('#modal').classList.add('on'); }
+function closeModal(){ $('#modal').classList.remove('on'); }
+document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeModal(); });
+
+/* ---- 4. 状態 ---------------------------------------------------------- */
+const TABLES = ['users','customers','products','orders','order_items','offer_plans',
+  'offer_plan_items','offer_targets','ai_candidates','approvals','offer_deliveries',
+  'offer_results','offer_blocks','audit_logs','app_settings'];
+
+const S = {
+  t:{}, me:null, route:{name:'dashboard',params:{}}, settings:{...DEFAULT_SETTINGS},
+  stats:new Map(),   // "cid|pid" -> {months:Map(ym->{qty,amount,cnt}), events:[...]}
+  custStats:new Map()// cid -> {months:Map, lastDate, total12}
+};
+TABLES.forEach(t=>S.t[t]=[]);
+
+/* ---- 5. データ層 ------------------------------------------------------ */
+const DB = {
+  mode: (CONFIG.supabaseUrl && CONFIG.supabaseAnonKey) ? 'supabase' : 'demo',
+  sb: null,
+
+  async init(){
+    if(this.mode!=='supabase') return;
+    await loadScript('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js');
+    this.sb = window.supabase.createClient(CONFIG.supabaseUrl, CONFIG.supabaseAnonKey);
+  },
+
+  async loadAll(){
+    if(this.mode==='demo'){ seedDemo(); return; }
+    for(const t of TABLES){
+      let from=0, out=[];
+      for(;;){
+        const {data,error} = await this.sb.from(t).select('*').range(from,from+999);
+        if(error){ console.error(t,error); break; }
+        out = out.concat(data);
+        if(data.length<1000) break;
+        from += 1000;
+      }
+      S.t[t]=out;
+    }
+    const cfg = S.t.app_settings[0];
+    if(cfg) S.settings = {...DEFAULT_SETTINGS, ...(cfg.data||{})};
+  },
+
+  async insert(table, rows){
+    const arr = Array.isArray(rows)?rows:[rows];
+    arr.forEach(r=>{ if(!r.id) r.id=uid(); });
+    if(this.mode==='supabase'){
+      const {error} = await this.sb.from(table).insert(arr);
+      if(error){ toast('保存に失敗：'+error.message,5000); throw error; }
+    }
+    S.t[table].push(...arr);
+    return Array.isArray(rows)?arr:arr[0];
+  },
+
+  async update(table, id, patch){
+    if(this.mode==='supabase'){
+      const {error} = await this.sb.from(table).update(patch).eq('id',id);
+      if(error){ toast('更新に失敗：'+error.message,5000); throw error; }
+    }
+    const row = byId(S.t[table],id);
+    if(row) Object.assign(row,patch);
+    return row;
+  },
+
+  async remove(table, id){
+    if(this.mode==='supabase'){
+      const {error} = await this.sb.from(table).delete().eq('id',id);
+      if(error){ toast('削除に失敗：'+error.message,5000); throw error; }
+    }
+    S.t[table] = S.t[table].filter(x=>x.id!==id);
+  },
+
+  async saveSettings(){
+    if(this.mode==='supabase'){
+      const cur = S.t.app_settings[0];
+      if(cur) await this.update('app_settings',cur.id,{data:S.settings});
+      else    await this.insert('app_settings',{id:'global',data:S.settings});
+    }
+  }
+};
+
+function loadScript(src){
+  return new Promise((res,rej)=>{
+    const s=document.createElement('script'); s.src=src; s.onload=res; s.onerror=()=>rej(new Error(src+' の読み込みに失敗')); document.head.appendChild(s);
+  });
+}
+
+/* 監査ログ（§8.5） */
+async function audit(action, entity_type, entity_id, before, after){
+  await DB.insert('audit_logs',{
+    id:uid(), user_id:S.me?.id, user_name:S.me?.name, action, entity_type, entity_id,
+    before_json:before?JSON.stringify(before):null, after_json:after?JSON.stringify(after):null,
+    created_at:new Date().toISOString()
+  });
+}
+
+/* 権限（§3） */
+const CAN = {
+  master: ()=> ['admin'].includes(S.me.role),
+  approve:()=> ['admin','approver'].includes(S.me.role),
+  edit:   ()=> ['admin','sales'].includes(S.me.role),
+  import: ()=> ['admin'].includes(S.me.role),
+  settings:()=>['admin'].includes(S.me.role)
+};
+function mine(customer){ // 営業は担当顧客のみ
+  if(S.me.role!=='sales') return true;
+  return customer && customer.sales_owner_id===S.me.id;
+}
+</script>
+<script>
+/* =========================================================================
+   デモデータ生成（Supabase未接続時）
+   R01〜R10 のすべてが一度は発火するように購買パターンを作り分ける
+   ========================================================================= */
+function rng(seed){ return function(){ seed|=0; seed=seed+0x6D2B79F5|0; let t=Math.imul(seed^seed>>>15,1|seed);
+  t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; }; }
+
+function seedDemo(){
+  const R = rng(20260903);
+  const pick = a => a[Math.floor(R()*a.length)];
+
+  S.t.users = [
+    {id:'u-admin', name:'坂口 孝太', role:'admin',    title:'代表取締役'},
+    {id:'u-appr',  name:'承認 担当',  role:'approver', title:'管理部'},
+    {id:'u-s1',    name:'上郷 佑介',  role:'sales',    title:'営業部'},
+    {id:'u-s2',    name:'田中 営業',  role:'sales',    title:'営業部'},
+    {id:'u-view',  name:'閲覧 ユーザー',role:'viewer', title:'—'}
+  ];
+
+  const cats = ['スキンブースター','フィラー','ボツリヌス','スレッド','ピーリング','機器消耗品'];
+  const P = [
+    ['JSH-001','Jalupro Super Hydro','スキンブースター', 9800, 8300, 6400,'booster'],
+    ['JCL-002','Jalupro Classic','スキンブースター',      7600, 6500, 5000,'booster'],
+    ['REJ-010','Rejuran Healer','スキンブースター',      12800,11000, 8600,'booster'],
+    ['PLN-011','Plinest Fast','スキンブースター',        11400, 9800, 7700,'booster'],
+    ['FLR-101','Neuramis Deep','フィラー',               8900, 7600, 5900,'filler'],
+    ['FLR-102','Neuramis Volume','フィラー',             9400, 8000, 6200,'filler'],
+    ['FLR-103','Chaeum Premium No.2','フィラー',        10800, 9200, 7100,'filler'],
+    ['BTX-201','Botulax 100U','ボツリヌス',              6900, 5900, 4500,'toxin'],
+    ['BTX-202','Nabota 100U','ボツリヌス',               8200, 7000, 5400,'toxin'],
+    ['THR-301','Mint Lift Thread','スレッド',           14500,12500, 9800,'thread'],
+    ['THR-302','Cog Thread 19G','スレッド',             12900,11000, 8600,'thread'],
+    ['PEL-401','PDRN Peeling Set','ピーリング',          5400, 4600, 3500,'peel'],
+    ['PEL-402','Aqua Peel Solution','ピーリング',        4200, 3600, 2700,'peel'],
+    ['DEV-501','カートリッジ 1.5mm','機器消耗品',        3800, 3300, 2500,'device']
+  ];
+  S.t.products = P.map((p,i)=>({
+    id:'p'+String(i+1).padStart(2,'0'), sku:p[0], name:p[1], category:p[2],
+    list_price:p[3], floor_price:p[4], cost:p[5], group_code:p[6],
+    lead_time:'7〜14日', active_flag:true
+  }));
+  // 販売停止商品（§16の除外テスト）
+  S.t.products[13].active_flag = false;
+
+  const prefs=['大阪府','東京都','兵庫県','京都府','愛知県','福岡県','神奈川県','広島県'];
+  const nm1=['心斎橋','梅田','天神','銀座','表参道','栄','三宮','四条','横浜','広島','難波','恵比寿','本町','天王寺','神戸','京橋','池袋','中之島','博多','江坂','西宮','岡山','仙台','札幌'];
+  const nm2=['美容クリニック','スキンクリニック','美容外科','クリニック','皮膚科クリニック','エステティッククリニック'];
+
+  // 顧客ごとの購買シナリオ（狙って各ルールを発火させる）
+  const scen = ['stop_product','stop_product','freq_down','qty_down','amount_down',
+                'switch_vendor','dormant','one_shot','due_soon','qty_up','cross_sell',
+                'stable','stable','stable','dormant','qty_down','due_soon','stop_product',
+                'qty_up','cross_sell','stable','freq_down','one_shot','stable',
+                'amount_down','switch_vendor'];
+
+  S.t.customers = scen.map((sc,i)=>({
+    id:'c'+String(i+1).padStart(3,'0'),
+    member_id:String(10001+i),
+    name:`${nm1[i%nm1.length]}${nm2[i%nm2.length]}`,
+    sales_owner_id: i%2 ? 'u-s1':'u-s2',
+    pref: prefs[i%prefs.length],
+    rank: i<5?'S' : i<12?'A' : i<20?'B':'C',
+    active_flag:true, offerable: i!==23, // 1件は提案停止（§16）
+    note: i===23?'与信保留のため提案停止':'',
+    _scen: sc
+  }));
+
+  // 注文生成
+  const orders=[], items=[];
+  let ono = 40000;
+  const start = addMonths(TODAY,-14);
+
+  S.t.customers.forEach((c,ci)=>{
+    const active = S.t.products.filter(p=>p.active_flag);
+    const core = [];
+    const n = 2 + Math.floor(R()*3);
+    const shuffled = [...active].sort(()=>R()-0.5);
+    for(let k=0;k<n;k++) core.push(shuffled[k]);
+
+    core.forEach((p,pi)=>{
+      const interval = pick([28,30,35,42,45,56,60,90]);
+      const baseQty  = pick([10,20,20,30,30,50,60,100]);
+      let stopAfter=null, qtyTrend=1, intervalTrend=1, onlyFirst=false, dueSoon=false;
+
+      if(c._scen==='stop_product'   && pi===0){ stopAfter = addDays(TODAY,-75); }
+      if(c._scen==='switch_vendor'  && pi===0){ stopAfter = addDays(TODAY,-70); }
+      if(c._scen==='freq_down'      && pi===0){ intervalTrend = 2.1; }
+      if(c._scen==='qty_down'       && pi===0){ qtyTrend = 0.42; }
+      if(c._scen==='qty_up'         && pi===0){ qtyTrend = 1.9; }
+      if(c._scen==='one_shot'       && pi===0){ onlyFirst = true; }
+      if(c._scen==='due_soon'       && pi===0){ dueSoon = true; }
+
+      let d = new Date(start);
+      d = addDays(d, Math.floor(R()*interval));
+      let idx=0;
+      const evs=[];
+      while(d <= TODAY){
+        if(stopAfter && d>stopAfter) break;
+        if(onlyFirst && idx>0) break;
+        evs.push(new Date(d));
+        idx++;
+        let step = interval * (1 + (R()-0.5)*0.25);
+        // 後半になるほど間隔が延びる
+        if(intervalTrend>1 && d > addMonths(TODAY,-5)) step *= intervalTrend;
+        d = addDays(d, Math.round(step));
+      }
+      // 次回予測が±14日に入るよう最後の購入日を調整
+      if(dueSoon && evs.length>=3){
+        evs[evs.length-1] = addDays(TODAY, -interval + Math.round((R()*10)-5));
+      }
+      evs.forEach((ed,k)=>{
+        const prog = k/Math.max(1,evs.length-1);
+        let qty = baseQty * (1 + (qtyTrend-1)*prog) * (1+(R()-0.5)*0.15);
+        if(c._scen==='qty_up' && k>=evs.length-3) qty = baseQty*(1.3+0.35*(k-(evs.length-3)));
+        qty = Math.max(5, Math.round(qty/5)*5);
+        const unit = Math.round(p.list_price * (1 - (R()*0.06)));
+        const oid = uid();
+        orders.push({id:oid, order_no:'BC'+(++ono), customer_id:c.id, order_date:d2s(ed), total_amount:qty*unit});
+        items.push({id:uid(), order_id:oid, product_id:p.id, qty, unit_price:unit, amount:qty*unit});
+      });
+    });
+
+    // 顧客全体の休眠（§R06）
+    if(c._scen==='dormant'){
+      const cut = addDays(TODAY,-110);
+      const rm = new Set(orders.filter(o=>o.customer_id===c.id && s2d(o.order_date)>cut).map(o=>o.id));
+      for(let i=orders.length-1;i>=0;i--) if(rm.has(orders[i].id)) orders.splice(i,1);
+      for(let i=items.length-1;i>=0;i--)  if(rm.has(items[i].order_id)) items.splice(i,1);
+    }
+    // 売上全体の低下（§R04）
+    if(c._scen==='amount_down'){
+      const cut = addMonths(TODAY,-2);
+      orders.filter(o=>o.customer_id===c.id && s2d(o.order_date)>cut).forEach(o=>{
+        items.filter(it=>it.order_id===o.id).forEach(it=>{
+          it.qty = Math.max(5, Math.round(it.qty*0.3/5)*5);
+          it.amount = it.qty*it.unit_price;
+        });
+        o.total_amount = sum(items.filter(it=>it.order_id===o.id).map(it=>it.amount));
+      });
+    }
+  });
+
+  S.t.orders = orders.sort((a,b)=>a.order_date<b.order_date?-1:1);
+  S.t.order_items = items;
+  S.t.app_settings = [{id:'global', data:{...DEFAULT_SETTINGS}}];
+
+  // 過去の提案実績を少しだけ（KPI・学習用）
+  const past = S.t.customers.slice(0,4);
+  past.forEach((c,i)=>{
+    const p = S.t.products[i];
+    const planId=uid();
+    S.t.offer_plans.push({
+      id:planId, type:'routine', title:`${addMonths(TODAY,-1).getFullYear()}年${addMonths(TODAY,-1).getMonth()+1}月 ${p.name} 特別提案`,
+      start_date:d2s(addMonths(TODAY,-1)), end_date:d2s(addDays(TODAY,-3)), status:'approved',
+      created_by:'u-s1', memo:'先月分', comment_text:'', created_at:new Date().toISOString()
+    });
+    S.t.offer_plan_items.push({id:uid(), offer_plan_id:planId, product_id:p.id, qty_from:30, qty_to:49, list_price:p.list_price, offer_price:Math.round(p.list_price*0.9)});
+    const tid=uid();
+    S.t.offer_targets.push({id:tid, offer_plan_id:planId, customer_id:c.id, ai_candidate_id:null, status:'sent', rule_code:'R01'});
+    S.t.offer_deliveries.push({id:uid(), offer_target_id:tid, sent_at:d2s(addDays(TODAY,-20)), channel:'mail', sent_by:'u-s1'});
+    const res = ['won','partial','lost','no_reply'][i];
+    S.t.offer_results.push({id:uid(), offer_target_id:tid, result_code:res,
+      reason_codes: res==='lost'?['price']:[], amount: res==='won'?30*p.list_price*0.9 : res==='partial'?15*p.list_price*0.9 : 0,
+      note:'', registered_at:d2s(addDays(TODAY,-10))});
+  });
+}
+
+/* =========================================================================
+   月次集計（§5）：顧客×商品×年月
+   ========================================================================= */
+function rebuildStats(){
+  S.stats.clear(); S.custStats.clear();
+  const oById = new Map(S.t.orders.map(o=>[o.id,o]));
+  for(const it of S.t.order_items){
+    const o = oById.get(it.order_id); if(!o) continue;
+    const key = o.customer_id+'|'+it.product_id;
+    let s = S.stats.get(key);
+    if(!s){ s={customer_id:o.customer_id, product_id:it.product_id, months:new Map(), events:[]}; S.stats.set(key,s); }
+    const ym = ymOf(o.order_date);
+    const m = s.months.get(ym) || {qty:0,amount:0,cnt:0};
+    m.qty+=it.qty; m.amount+=it.amount; m.cnt++;
+    s.months.set(ym,m);
+    s.events.push({date:o.order_date, qty:it.qty, amount:it.amount, unit_price:it.unit_price, order_no:o.order_no});
+
+    let cs = S.custStats.get(o.customer_id);
+    if(!cs){ cs={months:new Map(), lastDate:null, total:0, total12:0}; S.custStats.set(o.customer_id,cs); }
+    const cm = cs.months.get(ym) || {qty:0,amount:0,cnt:0};
+    cm.qty+=it.qty; cm.amount+=it.amount; cm.cnt++;
+    cs.months.set(ym,cm);
+    cs.total += it.amount;
+    if(days(o.order_date, addMonths(TODAY,-12))>=0) cs.total12 += it.amount;
+    if(!cs.lastDate || o.order_date>cs.lastDate) cs.lastDate=o.order_date;
+  }
+  for(const s of S.stats.values()) s.events.sort((a,b)=>a.date<b.date?-1:1);
+}
+
+function lastMonths(n){
+  const out=[]; for(let i=n-1;i>=0;i--){ const d=addMonths(TODAY,-i); out.push(d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')); } return out;
+}
+function cpStat(cid,pid){ return S.stats.get(cid+'|'+pid); }
+function custLast(cid){ return S.custStats.get(cid)?.lastDate || null; }
+</script>
+<script>
+/* =========================================================================
+   §7 AI発見型プラン：判定ルール・スコアリング・文章生成
+   数値はすべて確定計算（JS）。AIは文章化のみ（§13）。
+   ========================================================================= */
+
+const RULES = {
+  R01:{name:'購入停止',     action:'同商品の復活提案'},
+  R02:{name:'購入頻度低下', action:'次回購入タイミング提案'},
+  R03:{name:'購入数量減少', action:'まとめ買い/価格条件提案'},
+  R04:{name:'購入金額低下', action:'減少商品を特定して提案'},
+  R05:{name:'商品単位離反', action:'同商品の仕入シェア奪還'},
+  R06:{name:'休眠復活',     action:'復活限定プラン'},
+  R07:{name:'単発後停止',   action:'使用状況確認と再購入提案'},
+  R08:{name:'次回購入予測', action:'次回発注前の事前提案'},
+  R09:{name:'数量アップ候補',action:'上位数量帯プラン'},
+  R10:{name:'関連商品候補', action:'クロスセル提案'}
+};
+const RULE_ORDER = ['R05','R01','R06','R04','R03','R02','R07','R08','R09','R10'];
+const QTY_TIERS = [10,20,30,50,100,200];
+
+/* --- 指標計算 --- */
+function metrics(cid,pid){
+  const s = cpStat(cid,pid);
+  if(!s || !s.events.length) return null;
+  const ev = s.events;
+  const last = ev[ev.length-1];
+  const dsl = days(TODAY, last.date);
+  const ev6  = ev.filter(e=>days(TODAY,e.date)<=180);
+  const ev12 = ev.filter(e=>days(TODAY,e.date)<=365);
+  const base = ev12.length>=2 ? ev12 : ev;
+  const intervals=[];
+  for(let i=1;i<base.length;i++) intervals.push(days(base[i].date, base[i-1].date));
+  const avgInt = intervals.length ? avg(intervals) : null;
+  const sd = intervals.length>1 ? Math.sqrt(avg(intervals.map(x=>(x-avgInt)**2))) : 0;
+  const cv = intervals.length ? (avgInt>0 ? sd/avgInt : 0) : null;  // 購入1回のみは「不規則」ではなく不明
+  const last2 = ev.slice(-2);
+  const prior = ev6.slice(0,Math.max(0,ev6.length-2));
+  const prevAvgQty = prior.length ? avg(prior.map(e=>e.qty)) : (ev6.length?avg(ev6.map(e=>e.qty)):0);
+  return {
+    ev, ev6, ev12, last, dsl, avgInt, cv,
+    cnt6: ev6.length, cnt12: ev12.length, cntAll: ev.length,
+    last2AvgQty: avg(last2.map(e=>e.qty)),
+    prevAvgQty,
+    amt12: sum(ev12.map(e=>e.amount)),
+    avgQty: avg(ev6.length?ev6.map(e=>e.qty):ev.map(e=>e.qty)),
+    monthlyQty6: sum(ev6.map(e=>e.qty))/6
+  };
+}
+function customerMetrics(cid){
+  const cs = S.custStats.get(cid);
+  if(!cs) return null;
+  // 当月は集計途中なので比較から除き、完了した8ヶ月で判定する
+  const ms = lastMonths(9).slice(0,8);
+  const arr = ms.map(m=>cs.months.get(m)?.amount||0);
+  const last2 = avg(arr.slice(-2));
+  const prev6 = avg(arr.slice(0,6));
+  const dsl = cs.lastDate ? days(TODAY,cs.lastDate) : 9999;
+  return {cs, last2, prev6, dsl, total12:cs.total12};
+}
+function tierFor(q){ return QTY_TIERS.find(t=>t>=q) || QTY_TIERS[QTY_TIERS.length-1]; }
+
+/* --- ルール実行 --- */
+function runRules(){
+  const P = S.settings;
+  const out = [];
+  const activeProducts = S.t.products.filter(p=>p.active_flag);
+  const prodById = new Map(S.t.products.map(p=>[p.id,p]));
+
+  for(const c of S.t.customers){
+    if(!c.offerable || !c.active_flag) continue;              // §16
+    const cm = customerMetrics(c.id);
+    if(!cm) continue;
+    const custActive = cm.dsl <= 60;
+
+    // ---- 顧客単位のルール ----
+    // R04 購入金額低下
+    if(cm.prev6>0 && cm.last2 < cm.prev6*P.r04_amount_ratio && cm.dsl<=120){
+      // 減少幅が最大の商品を特定して提案対象にする
+      let worst=null;
+      for(const p of activeProducts){
+        const m = metrics(c.id,p.id); if(!m||m.cnt12<2) continue;
+        const drop = m.prevAvgQty>0 ? (m.prevAvgQty-m.last2AvgQty)/m.prevAvgQty : 0;
+        const w = drop * m.amt12;
+        if(!worst || w>worst.w) worst={p,m,w,drop};
+      }
+      if(worst) out.push(mk(c,worst.p,'R04',{
+        last2_amount:Math.round(cm.last2), prev6_amount:Math.round(cm.prev6),
+        ratio:cm.prev6? cm.last2/cm.prev6:0, drop:worst.drop
+      },worst.m));
+    }
+    // R06 休眠復活
+    const evAll = [...S.stats.values()].filter(s=>s.customer_id===c.id).flatMap(s=>s.events.map(e=>({...e,product_id:s.product_id})));
+    const inWindow = evAll.filter(e=>{ const d=days(TODAY,e.date); return d>P.r06_dormant_days && d<=365; });
+    const recent   = evAll.filter(e=>days(TODAY,e.date)<=P.r06_dormant_days);
+    if(inWindow.length>=3 && recent.length===0){
+      const g = groupBy(inWindow,e=>e.product_id);
+      let bestPid=null,bestAmt=-1;
+      for(const [pid,arr] of g){ const a=sum(arr.map(x=>x.amount)); if(a>bestAmt && prodById.get(pid)?.active_flag){bestAmt=a;bestPid=pid;} }
+      if(bestPid) out.push(mk(c,prodById.get(bestPid),'R06',{
+        dormant_days:cm.dsl, past_orders:inWindow.length, past_amount:Math.round(sum(inWindow.map(e=>e.amount)))
+      },metrics(c.id,bestPid)));
+    }
+
+    // ---- 顧客×商品のルール ----
+    // R10 関連商品：候補が膨らむため顧客あたり最有力の1件だけに絞る
+    let best10 = null;
+    if(custActive){
+      for(const p of activeProducts){
+        if(cpStat(c.id,p.id)) continue;                  // 購入実績があれば対象外
+        const src = activeProducts.map(q=>{
+          if(q.group_code!==p.group_code || q.id===p.id) return null;
+          const mm = metrics(c.id,q.id);
+          return (mm && mm.cnt6>=P.r10_min_orders) ? {q,mm} : null;
+        }).filter(Boolean).sort((a,b)=>b.mm.amt12-a.mm.amt12)[0];
+        if(!src) continue;
+        const w = src.mm.amt12 * ((p.list_price-(p.cost||0))/(p.list_price||1));
+        if(!best10 || w>best10.w) best10={p,src,w};
+      }
+      if(best10){
+        const {p,src}=best10;
+        out.push(mk(c,p,'R10',{
+          source_product:src.q.name, source_qty6:Math.round(sum(src.mm.ev6.map(e=>e.qty))), source_cnt6:src.mm.cnt6
+        },src.mm,{rec_qty_base: src.mm.avgQty*0.5}));
+      }
+    }
+
+    for(const p of activeProducts){
+      const m = metrics(c.id,p.id);
+      if(!m) continue;
+
+      // R01 購入停止
+      if(m.cnt6>=P.r01_min_orders && m.dsl>=P.r01_dormant_days){
+        out.push(mk(c,p,'R01',{orders6:m.cnt6, days_since:m.dsl, avg_qty:Math.round(m.avgQty), monthly_qty:Math.round(m.monthlyQty6)},m));
+        // R05 商品単位離反（顧客は継続購入中）
+        if(custActive) out.push(mk(c,p,'R05',{days_since:m.dsl, cust_last_days:cm.dsl, orders6:m.cnt6, avg_qty:Math.round(m.avgQty)},m));
+      }
+      // R02 購入頻度低下
+      if(m.cntAll>=3 && m.avgInt && m.dsl > m.avgInt*P.r02_interval_mult && m.dsl<P.r01_dormant_days*2){
+        out.push(mk(c,p,'R02',{avg_interval:Math.round(m.avgInt), days_since:m.dsl, mult:(m.dsl/m.avgInt)},m));
+      }
+      // R03 購入数量減少
+      if(m.cnt6>=3 && m.prevAvgQty>0 && m.last2AvgQty < m.prevAvgQty*P.r03_qty_ratio && m.dsl<=90){
+        out.push(mk(c,p,'R03',{last2_qty:Math.round(m.last2AvgQty), prev_qty:Math.round(m.prevAvgQty), ratio:m.last2AvgQty/m.prevAvgQty},m,{rec_qty_base:m.prevAvgQty}));
+      }
+      // R07 単発後停止
+      if(m.cntAll===1 && m.dsl>=P.r07_single_days){
+        out.push(mk(c,p,'R07',{first_date:m.last.date, days_since:m.dsl, qty:m.last.qty},m));
+      }
+      // R08 次回購入予測
+      if(m.cntAll>=3 && m.avgInt && m.cv!=null && m.cv<=0.35){
+        const nextD = addDays(s2d(m.last.date), Math.round(m.avgInt));
+        const diff = days(nextD, TODAY);
+        if(Math.abs(diff)<=P.r08_window_days){
+          out.push(mk(c,p,'R08',{next_date:d2s(nextD), in_days:diff, avg_interval:Math.round(m.avgInt), regularity:1-m.cv},m));
+        }
+      }
+      // R09 数量アップ候補
+      if(m.cntAll>=P.r09_streak && m.dsl<=90){
+        const t = m.ev.slice(-P.r09_streak).map(e=>e.qty);
+        let up=true; for(let i=1;i<t.length;i++) if(t[i]<=t[i-1]) up=false;
+        if(up) out.push(mk(c,p,'R09',{trend:t.join(' → '), latest_qty:t[t.length-1], growth:t[t.length-1]/t[0]},m,{rec_qty_base:t[t.length-1]*1.4}));
+      }
+    }
+  }
+  return out;
+}
+
+function mk(c,p,rule,ev,m,opt={}){
+  const baseQty = opt.rec_qty_base ?? (m ? (m.avgQty||m.monthlyQty6||20) : 20);
+  return {
+    customer_id:c.id, product_id:p.id, rule_code:rule, evidence:ev,
+    _m:m, _c:c, _p:p, rec_qty: tierFor(Math.max(10,Math.round(baseQty)))
+  };
+}
+
+/* --- スコアリング（§7.2） --- */
+function scoreAll(cands){
+  const amts = cands.map(x=>x._m?.amt12||0).filter(x=>x>0).sort((a,b)=>a-b);
+  const p90 = amts.length ? amts[Math.floor(amts.length*0.9)] : 1;
+  const winRate = pastWinRates();
+
+  for(const x of cands){
+    const m=x._m, p=x._p, e=x.evidence;
+    // 1. 過去売上規模 0-25
+    const sales = clamp(((m?.amt12||0)/(p90||1))*25, 0, 25);
+    // 2. 減少/停止の強さ 0-25
+    let sev = 8;
+    switch(x.rule_code){
+      case 'R01': sev = clamp(10 + (e.days_since-60)/12, 10, 25); break;
+      case 'R05': sev = clamp(14 + (e.days_since-60)/10, 14, 25); break;
+      case 'R06': sev = clamp(12 + e.past_orders*1.6, 12, 25); break;
+      case 'R04': sev = clamp((1-(e.ratio||0))*25, 6, 25); break;
+      case 'R03': sev = clamp((1-(e.ratio||0))*30, 6, 25); break;
+      case 'R02': sev = clamp((e.mult-1.5)*10+9, 6, 22); break;
+      case 'R07': sev = clamp(9 + e.days_since/15, 9, 20); break;
+      case 'R08': sev = 8; break;
+      case 'R09': sev = clamp(6 + (e.growth-1)*14, 6, 18); break;
+      case 'R10': sev = 6; break;
+    }
+    // 3. 購入規則性 0-15
+    const reg = (m && m.cv!=null) ? clamp((1-Math.min(m.cv,1))*15,0,15) : 5; // 規則性が不明なときは中立
+    // 4. 直近の変化 0-15
+    let chg = 6;
+    if(x.rule_code==='R03') chg = clamp((1-(e.ratio||0))*18,0,15);
+    if(x.rule_code==='R04') chg = clamp((1-(e.ratio||0))*18,0,15);
+    if(x.rule_code==='R08') chg = clamp(15-Math.abs(e.in_days),4,15);
+    if(x.rule_code==='R09') chg = 12;
+    if(['R01','R05','R06'].includes(x.rule_code)) chg = clamp((e.days_since||e.dormant_days||60)/12,4,15);
+    // 5. 利益/戦略商品重要度 0-10
+    const margin = p.cost&&p.list_price ? (p.list_price-p.cost)/p.list_price : 0.25;
+    const imp = clamp(margin*25,2,10);
+    // 6. 反応実績/過去提案結果 0-10
+    const wr = winRate.byRule[x.rule_code];
+    const cwr = winRate.byCustomer[x.customer_id];
+    const react = clamp(((wr==null?0.4:wr)*0.6 + (cwr==null?0.4:cwr)*0.4)*10, 0, 10);
+
+    x.parts = {sales, sev, reg, chg, imp, react};
+    x.score = Math.round(sales+sev+reg+chg+imp+react);
+    x.priority = x.score>=S.settings.score_s?'S' : x.score>=S.settings.score_a?'A' : x.score>=S.settings.score_b?'B':'C';
+    x.confidence = x.score>=S.settings.score_s && reg>=10 ? '高' : x.score>=S.settings.score_a ? '中':'低';
+  }
+  return cands;
+}
+
+function pastWinRates(){
+  const tById = new Map(S.t.offer_targets.map(t=>[t.id,t]));
+  const byRule={}, byCust={}, byProd={};
+  const add=(o,k,won)=>{ if(k==null) return; o[k]=o[k]||{w:0,n:0}; o[k].n++; if(won) o[k].w++; };
+  for(const r of S.t.offer_results){
+    const t = tById.get(r.offer_target_id); if(!t) continue;
+    const won = r.result_code==='won'||r.result_code==='partial';
+    add(byRule,t.rule_code,won); add(byCust,t.customer_id,won);
+    const plan = byId(S.t.offer_plans,t.offer_plan_id);
+    const items = S.t.offer_plan_items.filter(i=>i.offer_plan_id===t.offer_plan_id);
+    items.forEach(i=>add(byProd,i.product_id,won));
+  }
+  const rate = o => Object.fromEntries(Object.entries(o).map(([k,v])=>[k, v.n>=1? v.w/v.n : null]));
+  return {byRule:rate(byRule), byCustomer:rate(byCust), byProduct:rate(byProd), raw:{byRule,byProd}};
+}
+
+/* --- 重複統合と抑制（§15,§16） --- */
+function mergeAndSuppress(cands){
+  const P=S.settings;
+  const blocked = (cid,pid)=>{
+    if(S.t.offer_blocks.some(b=>b.customer_id===cid && b.product_id===pid && (!b.until || days(s2d(b.until),TODAY)>=0)))
+      return '手動で提案対象外';
+    // 有効期間中の承認済/送付済提案
+    for(const t of S.t.offer_targets){
+      if(t.customer_id!==cid) continue;
+      const plan = byId(S.t.offer_plans,t.offer_plan_id); if(!plan) continue;
+      const has = S.t.offer_plan_items.some(i=>i.offer_plan_id===plan.id && i.product_id===pid);
+      if(!has) continue;
+      if(['approved','pending'].includes(plan.status) && plan.end_date && days(s2d(plan.end_date),TODAY)>=0) return '有効な提案が進行中';
+      const d = S.t.offer_deliveries.find(x=>x.offer_target_id===t.id);
+      if(d && days(TODAY,d.sent_at) < P.resuggest_block_days) return `${P.resuggest_block_days}日以内に提案済`;
+      const r = S.t.offer_results.find(x=>x.offer_target_id===t.id);
+      if(r && (r.reason_codes||[]).includes('stopped_use') && days(TODAY,r.registered_at) < P.stopped_block_days) return '使用中止による失注';
+    }
+    return null;
+  };
+
+  const map = new Map();
+  for(const x of cands){
+    const key = x.customer_id+'|'+x.product_id;
+    const cur = map.get(key);
+    if(!cur){ x.also=[]; map.set(key,x); continue; }
+    const keep = pickPrimary(cur,x), drop = keep===cur?x:cur;
+    keep.also = [...(cur.also||[]),...(x.also||[]),{rule_code:drop.rule_code, evidence:drop.evidence, score:drop.score}]
+      .filter(a=>a.rule_code!==keep.rule_code);
+    keep.score = Math.max(cur.score,x.score) + Math.min(6, keep.also.length*2); // 複数ルール該当は加点
+    keep.score = Math.min(100, keep.score);
+    keep.priority = keep.score>=S.settings.score_s?'S':keep.score>=S.settings.score_a?'A':keep.score>=S.settings.score_b?'B':'C';
+    map.set(key,keep);
+  }
+  const out=[];
+  for(const x of map.values()){
+    const b = blocked(x.customer_id,x.product_id);
+    if(b){ x._blocked=b; continue; }
+    if(x.priority==='C') continue;   // 40点未満は非表示（§7.2）
+    out.push(x);
+  }
+  return out.sort((a,b)=>b.score-a.score);
+}
+function pickPrimary(a,b){
+  if(a.score!==b.score) return a.score>b.score?a:b;
+  return RULE_ORDER.indexOf(a.rule_code) <= RULE_ORDER.indexOf(b.rule_code) ? a : b;
+}
+
+/* --- 文章生成（§13）：根拠数値を必ず含める ------------------------------
+   CONFIG.aiEndpoint が設定されていれば外部AIへ委譲。未設定時はローカル
+   テンプレート。いずれの場合も evidence（実績値）を併記する。          */
+function genTexts(x){
+  const c=x._c,p=x._p,e=x.evidence,m=x._m;
+  const cm = customerMetrics(c.id);
+  const custState = cm && cm.dsl<=45 ? '他商品は継続購入中' : cm && cm.dsl<=90 ? '取引は継続しているが全体に鈍化' : '全体の取引が停止';
+  let reason='', hypo='', rec='';
+  switch(x.rule_code){
+    case 'R01':
+      reason=`過去6ヶ月で${e.orders6}回購入（平均${num(e.avg_qty)}／回、月あたり約${num(e.monthly_qty)}）だが、直近${e.days_since}日は購入なし。`;
+      hypo=`定期使用していた商品が止まっている。在庫過多・施術メニュー変更・他社切替のいずれか。`;
+      rec=`従来の購入水準である${num(x.rec_qty)}${unitOf(p)}を軸に、期間限定の特別条件で復活を促す。`; break;
+    case 'R05':
+      reason=`当該商品は直近${e.days_since}日購入なし。一方で顧客全体の最終購入は${e.cust_last_days}日前で取引は継続。`;
+      hypo=`クリニック自体の離反ではなく、この商品のみ仕入先が変わった可能性が高い。`;
+      rec=`${num(x.rec_qty)}${unitOf(p)}／上位数量帯の条件を提示し、仕入シェアの奪還を狙う。`; break;
+    case 'R02':
+      reason=`平均購入間隔は${e.avg_interval}日だが、最終購入から${e.days_since}日（平均の${e.mult.toFixed(1)}倍）経過。`;
+      hypo=`発注忘れ、または在庫消化の鈍化。切替まで至っていない可能性が高い。`;
+      rec=`次回発注のタイミング提案として${num(x.rec_qty)}${unitOf(p)}の条件を提示する。`; break;
+    case 'R03':
+      reason=`直近2回の平均が${num(e.last2_qty)}${unitOf(p)}。過去6ヶ月平均${num(e.prev_qty)}${unitOf(p)}の${pct(e.ratio,0)}まで減少。`;
+      hypo=`小口発注への切替、もしくは一部を他社から購入している可能性。`;
+      rec=`元の水準${num(x.rec_qty)}${unitOf(p)}に戻すためのまとめ買い条件を提示する。`; break;
+    case 'R04':
+      reason=`直近2ヶ月の売上が月平均${yen(e.last2_amount)}。過去6ヶ月平均${yen(e.prev6_amount)}の${pct(e.ratio,0)}。`;
+      hypo=`複数商品にまたがる発注抑制。最も減少幅が大きいのが${p.name}。`;
+      rec=`減少が顕著な${p.name}を起点に、${num(x.rec_qty)}${unitOf(p)}の条件で取引量の回復を図る。`; break;
+    case 'R06':
+      reason=`${e.dormant_days}日間購入なし。それ以前の1年間は${e.past_orders}回・計${yen(e.past_amount)}の取引。`;
+      hypo=`休眠状態。担当者交代や施術メニュー変更の可能性。まず接点回復が必要。`;
+      rec=`復活限定プランとして${num(x.rec_qty)}${unitOf(p)}の特別条件を提示する。`; break;
+    case 'R07':
+      reason=`${jdate(e.first_date)}に${num(e.qty)}${unitOf(p)}を初回購入したのみ。以降${e.days_since}日間再購入なし。`;
+      hypo=`トライアル後の定着に至っていない。使用感・症例での不安が残っている可能性。`;
+      rec=`使用状況を確認したうえで、${num(x.rec_qty)}${unitOf(p)}の再購入条件を提示する。`; break;
+    case 'R08':
+      reason=`平均${e.avg_interval}日周期で購入。次回予測日は${jdate(e.next_date)}（${e.in_days>=0?`あと${e.in_days}日`:`${-e.in_days}日超過`}）。`;
+      hypo=`発注周期が安定しており、事前提案で数量を積み増せる余地がある。`;
+      rec=`発注前のこのタイミングで${num(x.rec_qty)}${unitOf(p)}の数量条件を提示する。`; break;
+    case 'R09':
+      reason=`直近の購入数量が ${e.trend} と連続で増加（${e.growth.toFixed(1)}倍）。`;
+      hypo=`施術件数が伸びている。上位数量帯へ引き上げる好機。`;
+      rec=`1つ上の数量帯${num(x.rec_qty)}${unitOf(p)}の単価メリットを提示する。`; break;
+    case 'R10':
+      reason=`${e.source_product}を過去6ヶ月で${e.source_cnt6}回・計${num(e.source_qty6)}購入。同カテゴリの${p.name}は購入実績なし。`;
+      hypo=`同カテゴリを継続使用しており、併用・置換の提案余地がある。`;
+      rec=`導入しやすい${num(x.rec_qty)}${unitOf(p)}から提案する。`; break;
+  }
+  return {
+    reason_text: reason,
+    summary_text: `顧客全体状況：${custState}（最終購入 ${cm?.cs?.lastDate?jdate(cm.cs.lastDate):'—'}、直近12ヶ月 ${yen(cm?.total12)}）`,
+    hypothesis_text: hypo,
+    recommendation_text: rec
+  };
+}
+function unitOf(p){
+  if(/Thread|スレッド/i.test(p.category)) return '本';
+  if(/カートリッジ|消耗品/.test(p.category)) return '個';
+  return '箱';
+}
+
+/* 顧客向けコメント（提案書本文・編集可） */
+function genCustomerComment(plan, items, customer, cand){
+  const p = byId(S.t.products, items[0]?.product_id) || {};
+  const head = `いつも大変お世話になっております。${CONFIG.company.name}${CONFIG.company.dept}でございます。`;
+  let mid;
+  if(cand){
+    switch(cand.rule_code){
+      case 'R06': mid = `このたび、${p.name}につきまして期間限定のご提案をご用意いたしました。`; break;
+      case 'R09': mid = `${p.name}のご使用が増えているとのことで、上位数量帯の条件をご案内いたします。`; break;
+      case 'R10': mid = `${p.name}のご導入をご検討いただける機会として、初回向けの条件をご用意いたしました。`; break;
+      default:    mid = `${p.name}につきまして、今回に限り下記条件でご提供が可能となりました。`;
+    }
+  } else {
+    mid = `${p.name}につきまして、下記の条件でご提案申し上げます。`;
+  }
+  const tail = `輸入商品のため数量・納期に限りがございます。ご検討のうえ、${plan.end_date?jdate(plan.end_date):'期限'}までにご連絡いただけますと幸いです。`;
+  return `${head}\n\n${mid}\n\n${tail}`;
+}
+
+/* 外部AI（任意）：根拠値を渡して文章のみ生成させる */
+async function aiRefine(payload){
+  if(!CONFIG.aiEndpoint) return null;
+  try{
+    const r = await fetch(CONFIG.aiEndpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    if(!r.ok) return null;
+    return await r.json();
+  }catch(e){ console.warn('AI endpoint失敗',e); return null; }
+}
+
+/* 月次バッチ（§15） */
+async function generateCandidates(){
+  rebuildStats();
+  const raw = runRules();
+  scoreAll(raw);
+  const merged = mergeAndSuppress(raw);
+  const ym = d2s(TODAY).slice(0,7);
+  // 当月の未着手候補を洗い替え
+  const keep = S.t.ai_candidates.filter(x=>!(x.ym===ym && x.status==='new'));
+  const removed = S.t.ai_candidates.filter(x=>x.ym===ym && x.status==='new');
+  if(DB.mode==='supabase') for(const r of removed) await DB.remove('ai_candidates', r.id);
+  else S.t.ai_candidates = keep;
+
+  const rows = merged.map(x=>{
+    const t = genTexts(x);
+    return {
+      id:uid(), ym, customer_id:x.customer_id, product_id:x.product_id, rule_code:x.rule_code,
+      also_rules:(x.also||[]).map(a=>a.rule_code), score:x.score, priority:x.priority,
+      confidence:x.confidence, rec_qty:x.rec_qty,
+      evidence_json:{...x.evidence, parts:x.parts},
+      reason_text:t.reason_text, summary_text:t.summary_text,
+      hypothesis_text:t.hypothesis_text, recommendation_text:t.recommendation_text,
+      status:'new', created_at:new Date().toISOString()
+    };
+  }).filter(r=>!S.t.ai_candidates.some(x=>x.ym===ym && x.customer_id===r.customer_id && x.product_id===r.product_id));
+
+  if(rows.length) await DB.insert('ai_candidates',rows);
+  await audit('generate','ai_candidates',ym,null,{count:rows.length});
+  return rows.length;
+}
+</script>
+<script>
+/* =========================================================================
+   画面制御
+   ========================================================================= */
+const NAV = [
+  {g:'提案'},
+  {k:'dashboard', t:'ダッシュボード'},
+  {k:'candidates',t:'AI提案候補',  badge:()=>countCand()},
+  {k:'plans',     t:'提案プラン',  badge:()=>S.t.offer_plans.filter(p=>p.status==='draft').length},
+  {k:'approvals', t:'承認',        badge:()=>S.t.offer_plans.filter(p=>p.status==='pending').length},
+  {k:'delivery',  t:'送付・結果',  badge:()=>countTodo()},
+  {g:'データ'},
+  {k:'customers', t:'顧客'},
+  {k:'products',  t:'商品'},
+  {k:'import',    t:'購入実績取込'},
+  {g:'分析・管理'},
+  {k:'reports',   t:'レポート'},
+  {k:'settings',  t:'設定'},
+  {k:'audit',     t:'監査ログ'}
+];
+const TITLES = {dashboard:'ダッシュボード',candidates:'AI提案候補',plans:'提案プラン',
+  planEdit:'プラン作成 / 編集',approvals:'承認',delivery:'送付・結果管理',customers:'顧客',
+  customer:'顧客詳細',products:'商品マスタ',import:'購入実績取込',reports:'レポート / KPI',
+  settings:'設定',audit:'監査ログ',proposal:'提案書'};
+
+function countCand(){ const ym=d2s(TODAY).slice(0,7); return S.t.ai_candidates.filter(c=>c.status==='new'&&visibleCand(c)).length; }
+function countTodo(){
+  return S.t.offer_targets.filter(t=>{
+    const plan=byId(S.t.offer_plans,t.offer_plan_id);
+    if(!plan||plan.status!=='approved') return false;
+    const d=S.t.offer_deliveries.find(x=>x.offer_target_id===t.id);
+    const r=S.t.offer_results.find(x=>x.offer_target_id===t.id);
+    return !d || !r;
+  }).length;
+}
+function visibleCand(c){ const cu=byId(S.t.customers,c.customer_id); return mine(cu); }
+
+function go(name, params={}){ location.hash = '#/'+name+(params.id?('/'+params.id):''); }
+function parseHash(){
+  const raw = location.hash.replace(/^#\/?/,'').split('/');
+  return {name: raw[0]||'dashboard', params:{id:raw[1]}};
+}
+window.addEventListener('hashchange', render);
+
+function renderNav(){
+  $('#navList').innerHTML = NAV.map(n=>{
+    if(n.g) return `<div class="grp">${n.g}</div>`;
+    const b = n.badge? n.badge():0;
+    const on = S.route.name===n.k || (n.k==='customers'&&S.route.name==='customer') || (n.k==='plans'&&['planEdit','proposal'].includes(S.route.name));
+    return `<a class="item ${on?'on':''}" onclick="go('${n.k}')">${n.t}${b?`<span class="badge">${b}</span>`:''}</a>`;
+  }).join('');
+  $('#me').innerHTML = `<b>${esc(S.me.name)}</b>${roleName(S.me.role)}<br>
+    <button onclick="logout()">利用者を切り替える</button>`;
+}
+const roleName = r => ({admin:'管理者',sales:'営業',approver:'承認者',viewer:'閲覧者'}[r]||r);
+
+function render(){
+  S.route = parseHash();
+  const v = VIEWS[S.route.name] || VIEWS.dashboard;
+  $('#pageTitle').textContent = TITLES[S.route.name]||'';
+  $('#pageSub').innerHTML = `${DB.mode==='demo'?'<span class="tag warn">デモモード（保存されません）</span> ':''}${d2s(TODAY)}`;
+  renderNav();
+  $('#view').innerHTML = v();
+  window.scrollTo(0,0);
+  if(typeof v.after==='function') v.after();
+}
+
+/* --- 小物 --- */
+function chartBars(months, values, opt={}){
+  const w=Math.max(300, months.length*44), h=opt.h||120, pad=22;
+  const max = Math.max(1,...values);
+  const bw = (w-pad*2)/months.length;
+  return `<svg class="chart" viewBox="0 0 ${w} ${h+26}" preserveAspectRatio="none" role="img" aria-label="月別推移">
+    <line x1="${pad}" y1="${h}" x2="${w-pad}" y2="${h}" stroke="#D5DCE3"/>
+    ${values.map((v,i)=>{
+      const bh = v/max*(h-14);
+      const x = pad+i*bw+bw*0.18, y = h-bh;
+      return `<rect x="${x}" y="${y}" width="${bw*0.64}" height="${Math.max(0,bh)}" fill="${opt.color||'#0F6E5C'}" opacity="${v?0.9:0.15}"/>
+      ${v?`<text x="${x+bw*0.32}" y="${y-3}" text-anchor="middle">${num(v)}</text>`:''}`;
+    }).join('')}
+    ${months.map((m,i)=>`<text x="${pad+i*bw+bw*0.5}" y="${h+15}" text-anchor="middle">${m.slice(5)}月</text>`).join('')}
+  </svg>`;
+}
+function priChip(p){ return `<span class="pri ${p}">${p}</span>`; }
+function custName(id){ return byId(S.t.customers,id)?.name || '—'; }
+function prodName(id){ return byId(S.t.products,id)?.name || '—'; }
+function userName(id){ return byId(S.t.users,id)?.name || '—'; }
+const STATUS_JA = {draft:'下書き',pending:'承認待ち',rejected:'差戻し',approved:'承認済み',expired:'期限切れ',
+  new:'未確認',adopted:'採用',skipped:'見送り',created:'作成済み',
+  unsent:'未送付',sent:'送付済み',replied:'返信あり',
+  won:'受注',partial:'一部受注',pass:'見送り',no_reply:'返信なし',lost:'失注'};
+const REASONS = {timing:'タイミング',stock:'在庫あり',stopped_use:'使用中止',price:'価格',competitor:'競合他社',lead_time:'納期',changed:'商品変更',other:'その他'};
+
+const VIEWS = {};
+
+/* ============================ ダッシュボード §8.1 ==================== */
+VIEWS.dashboard = function(){
+  const cands = S.t.ai_candidates.filter(c=>c.status==='new'&&visibleCand(c));
+  const cnt = p => cands.filter(c=>c.priority===p).length;
+  const plans = S.t.offer_plans;
+  const pending = plans.filter(p=>p.status==='pending').length;
+  const targets = S.t.offer_targets.filter(t=>{const c=byId(S.t.customers,t.customer_id);return mine(c);});
+  const unsent = targets.filter(t=>byId(S.t.offer_plans,t.offer_plan_id)?.status==='approved' && !S.t.offer_deliveries.some(d=>d.offer_target_id===t.id)).length;
+  const waiting = targets.filter(t=>S.t.offer_deliveries.some(d=>d.offer_target_id===t.id) && !S.t.offer_results.some(r=>r.offer_target_id===t.id)).length;
+  const results = S.t.offer_results.filter(r=>targets.some(t=>t.id===r.offer_target_id));
+  const won = results.filter(r=>['won','partial'].includes(r.result_code));
+  const sentN = targets.filter(t=>S.t.offer_deliveries.some(d=>d.offer_target_id===t.id)).length;
+  const expect = sum(targets.map(t=>targetAmount(t)));
+  const gotten = sum(won.map(r=>r.amount||0));
+  const expired = plans.filter(p=>p.status==='approved'&&p.end_date&&days(TODAY,p.end_date)>0);
+  const soon = targets.filter(t=>{
+    const p=byId(S.t.offer_plans,t.offer_plan_id);
+    return p&&p.status==='approved'&&p.end_date&&days(s2d(p.end_date),TODAY)<=3&&days(s2d(p.end_date),TODAY)>=0
+      && !S.t.offer_deliveries.some(d=>d.offer_target_id===t.id);
+  });
+
+  return `
+  ${soon.length?`<div class="alert">期限3日以内で未送付の提案が ${soon.length} 件あります。<button class="link" onclick="go('delivery')">送付管理を開く</button></div>`:''}
+  ${expired.length?`<div class="alert">有効期限を過ぎた承認済みプランが ${expired.length} 件あります。<button class="link" onclick="expirePlans()">期限切れにする</button></div>`:''}
+  <div class="grid g4">
+    <div class="card"><div class="kpi"><div class="l">今月の提案候補</div><div class="n">${cands.length}</div>
+      <div class="d">${priChip('S')} ${cnt('S')}　${priChip('A')} ${cnt('A')}　${priChip('B')} ${cnt('B')}</div></div></div>
+    <div class="card"><div class="kpi"><div class="l">承認待ち</div><div class="n">${pending}</div><div class="d">未送付 ${unsent} 件</div></div></div>
+    <div class="card"><div class="kpi"><div class="l">返信待ち</div><div class="n">${waiting}</div><div class="d">結果未登録</div></div></div>
+    <div class="card"><div class="kpi"><div class="l">受注率</div><div class="n">${sentN?pct(won.length/sentN,0):'—'}</div><div class="d">送付 ${sentN} 件 / 受注 ${won.length} 件</div></div></div>
+  </div>
+  <div class="grid g2">
+    <div class="card"><h2>金額</h2><div class="body">
+      <div class="grid g2">
+        <div class="kpi" style="padding:0"><div class="l">提案売上見込</div><div class="n">${yen(expect)}</div></div>
+        <div class="kpi" style="padding:0"><div class="l">受注売上</div><div class="n">${yen(gotten)}</div></div>
+      </div>
+      <p class="hint" style="margin:12px 0 0">見込は承認済み・送付済み提案の提案金額合計。受注は結果登録済みの金額。</p>
+    </div></div>
+    <div class="card"><h2>次にやること</h2><div class="body">
+      <div class="bar">
+        <button class="btn" onclick="go('candidates')">AI候補を確認</button>
+        <button class="btn ghost" onclick="newPlan('routine')">定例プランを作成</button>
+        <button class="btn ghost" onclick="newPlan('individual')">個別プランを作成</button>
+        ${CAN.import()?`<button class="btn ghost" onclick="go('import')">購入実績を取り込む</button>`:''}
+      </div>
+      <p class="hint">実績を取り込むと候補が再生成されます。候補は顧客×商品ごとに1件へ統合され、40点未満は表示しません。</p>
+    </div></div>
+  </div>
+  <div class="card"><h2>優先度の高い候補<span class="r"><button class="btn sm ghost" onclick="go('candidates')">すべて見る</button></span></h2>
+    <div class="body tight"><div class="scroll">${candTable(cands.slice(0,8),false)}</div></div></div>`;
+};
+
+function targetAmount(t){
+  const items = S.t.offer_plan_items.filter(i=>i.offer_plan_id===t.offer_plan_id);
+  if(!items.length) return 0;
+  const i = items[0];
+  return (i.offer_price||0) * (t.qty || i.qty_from || 0);
+}
+async function expirePlans(){
+  const list = S.t.offer_plans.filter(p=>p.status==='approved'&&p.end_date&&days(TODAY,p.end_date)>0);
+  for(const p of list) await DB.update('offer_plans',p.id,{status:'expired'});
+  toast(`${list.length}件を期限切れにしました`); render();
+}
+
+/* ============================ AI提案候補 §8.2 ======================== */
+const CF = {priority:'',owner:'',product:'',category:'',rule:'',pref:'',rank:'',status:'new',q:'',collapse:true};
+const CSEL = new Set();
+
+VIEWS.candidates = function(){
+  const list = filteredCands();
+  const byCust = groupBy(list,c=>c.customer_id);
+  let shown = [];
+  for(const [cid,arr] of byCust){
+    arr.sort((a,b)=>b.score-a.score);
+    arr.forEach((c,i)=> shown.push({...c,_hidden: CF.collapse && i>=S.settings.max_per_customer, _rank:i}));
+  }
+  shown.sort((a,b)=>b.score-a.score);
+  const visible = shown.filter(c=>!c._hidden);
+  const hidden = shown.length-visible.length;
+
+  return `
+  <div class="card"><h2>絞り込み<span class="r">
+      <button class="btn sm ghost" onclick="resetCF()">条件をクリア</button>
+      ${CAN.import()?`<button class="btn sm" onclick="regenerate()">候補を再生成</button>`:''}
+    </span></h2>
+    <div class="body">
+      <div class="grid g4" style="gap:10px">
+        ${sel('priority','優先度',[['','すべて'],['S','S'],['A','A'],['B','B']])}
+        ${sel('owner','担当営業',[['','すべて'],...S.t.users.filter(u=>u.role==='sales').map(u=>[u.id,u.name])])}
+        ${sel('rule','判定タイプ',[['','すべて'],...Object.entries(RULES).map(([k,v])=>[k,`${k} ${v.name}`])])}
+        ${sel('category','カテゴリ',[['','すべて'],...[...new Set(S.t.products.map(p=>p.category))].map(c=>[c,c])])}
+        ${sel('product','商品',[['','すべて'],...S.t.products.map(p=>[p.id,p.name])])}
+        ${sel('pref','都道府県',[['','すべて'],...[...new Set(S.t.customers.map(c=>c.pref))].map(c=>[c,c])])}
+        ${sel('rank','顧客ランク',[['','すべて'],['S','S'],['A','A'],['B','B'],['C','C']])}
+        ${sel('status','状態',[['','すべて'],['new','未確認'],['adopted','採用'],['skipped','見送り'],['created','作成済み']])}
+      </div>
+      <label class="f" style="margin:10px 0 0"><span>施設名で検索</span><input type="text" value="${esc(CF.q)}" oninput="CF.q=this.value;render()"></label>
+    </div>
+  </div>
+
+  <div class="bar">
+    <b>${visible.length} 件</b>
+    ${hidden?`<span class="hint">同一顧客の下位 ${hidden} 件を折りたたみ中</span>
+      <button class="btn sm ghost" onclick="CF.collapse=false;render()">すべて表示</button>`:''}
+    ${!CF.collapse?`<button class="btn sm ghost" onclick="CF.collapse=true;render()">上位${S.settings.max_per_customer}件に絞る</button>`:''}
+    <div class="sp"></div>
+    ${CAN.edit()?`<button class="btn" onclick="bulkCreate()" ${CSEL.size?'':'disabled'}>選択した ${CSEL.size} 件でプラン作成</button>
+    <button class="btn ghost" onclick="bulkSkip()" ${CSEL.size?'':'disabled'}>見送り</button>`:''}
+  </div>
+  <div class="card"><div class="body tight"><div class="scroll">${candTable(visible,true)}</div></div></div>`;
+};
+VIEWS.candidates.after = ()=>{};
+
+function sel(key,label,opts){
+  return `<label class="f" style="margin:0"><span>${label}</span><select onchange="CF.${key}=this.value;CSEL.clear();render()">
+    ${opts.map(([v,t])=>`<option value="${esc(v)}" ${CF[key]===v?'selected':''}>${esc(t)}</option>`).join('')}</select></label>`;
+}
+function resetCF(){ Object.assign(CF,{priority:'',owner:'',product:'',category:'',rule:'',pref:'',rank:'',status:'new',q:'',collapse:true}); CSEL.clear(); render(); }
+
+function filteredCands(){
+  return S.t.ai_candidates.filter(c=>{
+    const cu=byId(S.t.customers,c.customer_id), p=byId(S.t.products,c.product_id);
+    if(!cu||!p) return false;
+    if(!mine(cu)) return false;
+    if(CF.status && c.status!==CF.status) return false;
+    if(CF.priority && c.priority!==CF.priority) return false;
+    if(CF.owner && cu.sales_owner_id!==CF.owner) return false;
+    if(CF.rule && c.rule_code!==CF.rule && !(c.also_rules||[]).includes(CF.rule)) return false;
+    if(CF.category && p.category!==CF.category) return false;
+    if(CF.product && c.product_id!==CF.product) return false;
+    if(CF.pref && cu.pref!==CF.pref) return false;
+    if(CF.rank && cu.rank!==CF.rank) return false;
+    if(CF.q && !cu.name.includes(CF.q)) return false;
+    return true;
+  }).sort((a,b)=>b.score-a.score);
+}
+
+function candTable(list, withSel){
+  if(!list.length) return `<div class="empty"><b>候補がありません</b>絞り込み条件を変えるか、購入実績を取り込んで候補を再生成してください。</div>`;
+  return `<table class="t sticky-h"><thead><tr>
+    ${withSel?'<th style="width:28px"></th>':''}
+    <th>優先度</th><th>施設名</th><th>担当</th><th>商品</th><th>判定</th><th>根拠</th>
+    <th class="num">過去平均</th><th class="num">直近</th><th class="num">推奨数量</th><th>状態</th><th></th>
+  </tr></thead><tbody>
+  ${list.map(c=>{
+    const cu=byId(S.t.customers,c.customer_id), p=byId(S.t.products,c.product_id);
+    const e=c.evidence_json||{};
+    const past = e.avg_qty ?? e.prev_qty ?? e.source_qty6 ?? null;
+    const recent = e.last2_qty ?? (e.days_since!=null?`${e.days_since}日前`:null) ?? (e.latest_qty??null);
+    return `<tr class="${CSEL.has(c.id)?'sel':''}">
+      ${withSel?`<td><input type="checkbox" ${CSEL.has(c.id)?'checked':''} onchange="toggleSel('${c.id}')"></td>`:''}
+      <td>${priChip(c.priority)}<div class="hint">${c.score}点</div></td>
+      <td><button class="link" onclick="go('customer',{id:'${cu.id}'})">${esc(cu.name)}</button>
+        <div class="hint">${esc(cu.pref)} / ランク${esc(cu.rank)}</div></td>
+      <td class="w">${esc(userName(cu.sales_owner_id))}</td>
+      <td>${esc(p.name)}<div class="hint">${esc(p.category)}</div></td>
+      <td class="w"><span class="tag">${c.rule_code}</span> ${RULES[c.rule_code]?.name||''}
+        ${(c.also_rules||[]).length?`<div class="hint">+${c.also_rules.join(',')}</div>`:''}</td>
+      <td style="min-width:280px;font-size:12.5px">${esc(c.reason_text)}</td>
+      <td class="num">${past!=null?num(past):'—'}</td>
+      <td class="num">${recent!=null? (typeof recent==='number'?num(recent):esc(recent)) :'—'}</td>
+      <td class="num"><b>${num(c.rec_qty)}</b></td>
+      <td class="w"><span class="tag ${c.status==='new'?'':'on'}">${STATUS_JA[c.status]||c.status}</span></td>
+      <td class="w"><button class="btn sm ghost" onclick="candDetail('${c.id}')">詳細</button></td>
+    </tr>`;
+  }).join('')}
+  </tbody></table>`;
+}
+function toggleSel(id){ CSEL.has(id)?CSEL.delete(id):CSEL.add(id); render(); }
+
+function candDetail(id){
+  const c = byId(S.t.ai_candidates,id);
+  const cu = byId(S.t.customers,c.customer_id), p=byId(S.t.products,c.product_id);
+  const st = cpStat(c.customer_id,c.product_id);
+  const ms = lastMonths(12);
+  const vals = ms.map(m=>st?.months.get(m)?.qty||0);
+  const e = c.evidence_json||{};
+  const parts = e.parts||{};
+  openModal(`${cu.name} / ${p.name}`,`
+    <div class="bar">${priChip(c.priority)} <b>${c.score}点</b> <span class="tag">${c.rule_code} ${RULES[c.rule_code]?.name}</span>
+      ${(c.also_rules||[]).map(r=>`<span class="tag mut">${r} ${RULES[r]?.name}</span>`).join('')}
+      <span class="tag">確度 ${c.confidence}</span></div>
+    <div class="evidence" style="margin-bottom:12px">${esc(c.reason_text)}</div>
+    <div class="ai" style="margin-bottom:12px">
+      <div class="lbl">顧客全体状況</div><div>${esc(c.summary_text)}</div>
+      <div class="lbl" style="margin-top:8px">仮説</div><div>${esc(c.hypothesis_text)}</div>
+      <div class="lbl" style="margin-top:8px">推奨提案</div><div>${esc(c.recommendation_text)}</div>
+    </div>
+    <h4 style="margin:0 0 4px;font-size:13px">月別購入数量（12ヶ月）</h4>
+    ${chartBars(ms,vals)}
+    <h4 style="margin:14px 0 4px;font-size:13px">スコア内訳</h4>
+    <table class="t"><tbody>
+      ${[['過去売上規模',parts.sales,25],['減少/停止の強さ',parts.sev,25],['購入規則性',parts.reg,15],
+         ['直近の変化',parts.chg,15],['利益/戦略重要度',parts.imp,10],['反応実績',parts.react,10]]
+        .map(([l,v,m])=>`<tr><td>${l}</td><td class="num">${v==null?'—':v.toFixed(1)} / ${m}</td></tr>`).join('')}
+    </tbody></table>`,
+    `${CAN.edit()?`<button class="btn ghost" onclick="skipCand('${c.id}')">見送り</button>
+      <button class="btn" onclick="closeModal();newPlanFromCand('${c.id}')">この候補でプランを作る</button>`:''}
+     <button class="btn ghost" onclick="closeModal()">閉じる</button>`);
+}
+async function skipCand(id){
+  const c=byId(S.t.ai_candidates,id);
+  await DB.update('ai_candidates',id,{status:'skipped'});
+  await audit('skip','ai_candidates',id,{status:c.status},{status:'skipped'});
+  closeModal(); toast('見送りにしました'); render();
+}
+async function bulkSkip(){
+  for(const id of CSEL) await DB.update('ai_candidates',id,{status:'skipped'});
+  toast(`${CSEL.size}件を見送りにしました`); CSEL.clear(); render();
+}
+async function regenerate(){
+  toast('候補を生成しています…');
+  const n = await generateCandidates();
+  toast(`${n}件の候補を生成しました`); render();
+}
+
+/* ============================ 顧客 §8.3 ============================== */
+const CUF={q:'',owner:'',rank:''};
+VIEWS.customers = function(){
+  const list = S.t.customers.filter(c=>mine(c))
+    .filter(c=>(!CUF.q||c.name.includes(CUF.q)||String(c.member_id).includes(CUF.q)))
+    .filter(c=>!CUF.owner||c.sales_owner_id===CUF.owner)
+    .filter(c=>!CUF.rank||c.rank===CUF.rank);
+  return `<div class="card"><div class="body">
+    <div class="grid g3" style="gap:10px">
+      <label class="f" style="margin:0"><span>検索</span><input type="text" value="${esc(CUF.q)}" oninput="CUF.q=this.value;render()" placeholder="施設名 / 顧客ID"></label>
+      <label class="f" style="margin:0"><span>担当営業</span><select onchange="CUF.owner=this.value;render()">
+        <option value="">すべて</option>${S.t.users.filter(u=>u.role==='sales').map(u=>`<option value="${u.id}" ${CUF.owner===u.id?'selected':''}>${esc(u.name)}</option>`).join('')}</select></label>
+      <label class="f" style="margin:0"><span>ランク</span><select onchange="CUF.rank=this.value;render()">
+        <option value="">すべて</option>${['S','A','B','C'].map(r=>`<option ${CUF.rank===r?'selected':''}>${r}</option>`).join('')}</select></label>
+    </div></div></div>
+  <div class="card"><div class="body tight"><div class="scroll">
+  <table class="t sticky-h"><thead><tr><th>顧客ID</th><th>施設名</th><th>担当</th><th>都道府県</th><th>ランク</th>
+    <th>最終購入</th><th class="num">直近12ヶ月売上</th><th class="num">候補</th><th>提案可否</th></tr></thead><tbody>
+  ${list.map(c=>{
+    const cs=S.custStats.get(c.id);
+    const cand=S.t.ai_candidates.filter(x=>x.customer_id===c.id&&x.status==='new').length;
+    const dsl = cs?.lastDate? days(TODAY,cs.lastDate):null;
+    return `<tr><td class="w">${esc(c.member_id)}</td>
+      <td><button class="link" onclick="go('customer',{id:'${c.id}'})">${esc(c.name)}</button></td>
+      <td class="w">${esc(userName(c.sales_owner_id))}</td><td class="w">${esc(c.pref)}</td><td>${esc(c.rank)}</td>
+      <td class="w">${cs?.lastDate?`${cs.lastDate} <span class="hint">${dsl}日前</span>`:'—'}</td>
+      <td class="num">${yen(cs?.total12||0)}</td>
+      <td class="num">${cand||'—'}</td>
+      <td>${c.offerable?'<span class="tag on">可</span>':'<span class="tag warn">停止</span>'}</td></tr>`;
+  }).join('')}
+  </tbody></table></div></div></div>`;
+};
+
+VIEWS.customer = function(){
+  const c = byId(S.t.customers, S.route.params.id);
+  if(!c) return `<div class="empty"><b>顧客が見つかりません</b><button class="link" onclick="go('customers')">顧客一覧へ戻る</button></div>`;
+  const cs = S.custStats.get(c.id);
+  const ms = lastMonths(12);
+  const amt = ms.map(m=>cs?.months.get(m)?.amount||0);
+  const prods = [...S.stats.values()].filter(s=>s.customer_id===c.id);
+  const cands = S.t.ai_candidates.filter(x=>x.customer_id===c.id).sort((a,b)=>b.score-a.score);
+  const targets = S.t.offer_targets.filter(t=>t.customer_id===c.id);
+
+  return `
+  <div class="bar"><button class="btn sm ghost" onclick="go('customers')">← 顧客一覧</button>
+    <div class="sp"></div>
+    ${CAN.edit()?`<button class="btn" onclick="newPlan('individual','${c.id}')">この顧客向けに個別プランを作成</button>`:''}
+    ${CAN.master()?`<button class="btn ghost" onclick="editCustomer('${c.id}')">顧客情報を編集</button>`:''}</div>
+  <div class="grid g3">
+    <div class="card"><h2>${esc(c.name)}</h2><div class="body">
+      <dl class="dl">
+        <dt>顧客ID</dt><dd>${esc(c.member_id)}</dd>
+        <dt>担当営業</dt><dd>${esc(userName(c.sales_owner_id))}</dd>
+        <dt>都道府県</dt><dd>${esc(c.pref)}</dd>
+        <dt>ランク</dt><dd>${esc(c.rank)}</dd>
+        <dt>提案可否</dt><dd>${c.offerable?'提案可':'<span class="tag warn">提案停止</span>'}</dd>
+        <dt>備考</dt><dd>${esc(c.note||'—')}</dd>
+      </dl></div></div>
+    <div class="card"><div class="kpi"><div class="l">累計売上</div><div class="n">${yen(cs?.total||0)}</div>
+      <div class="d">直近12ヶ月 ${yen(cs?.total12||0)}</div></div></div>
+    <div class="card"><div class="kpi"><div class="l">最終購入</div><div class="n">${cs?.lastDate?days(TODAY,cs.lastDate)+'日前':'—'}</div>
+      <div class="d">${cs?.lastDate?jdate(cs.lastDate):'購入実績なし'}</div></div></div>
+  </div>
+
+  <div class="card"><h2>売上推移（12ヶ月）</h2><div class="body">${chartBars(ms,amt.map(v=>Math.round(v/1000)),{color:'#4A6B84'})}
+    <p class="hint">単位：千円</p></div></div>
+
+  <div class="card"><h2>商品別 購入履歴</h2><div class="body tight"><div class="scroll">
+    <table class="t sticky-h"><thead><tr><th>商品</th>${ms.map(m=>`<th class="num">${m.slice(5)}月</th>`).join('')}
+      <th class="num">12ヶ月計</th><th>最終購入</th><th></th></tr></thead><tbody>
+    ${prods.map(s=>{
+      const p=byId(S.t.products,s.product_id); if(!p) return '';
+      const row=ms.map(m=>s.months.get(m)?.qty||0);
+      const last=s.events[s.events.length-1];
+      return `<tr><td>${esc(p.name)}<div class="hint">${esc(p.sku)}</div></td>
+        ${row.map(v=>`<td class="num">${v?num(v):'<span class="hint">—</span>'}</td>`).join('')}
+        <td class="num"><b>${num(sum(row))}</b></td>
+        <td class="w">${last.date}<div class="hint">${days(TODAY,last.date)}日前</div></td>
+        <td class="w">${CAN.edit()?`<button class="btn sm ghost" onclick="newPlan('individual','${c.id}','${p.id}')">提案</button>`:''}</td></tr>`;
+    }).join('') || `<tr><td colspan="${ms.length+4}"><div class="empty">購入実績がありません</div></td></tr>`}
+    </tbody></table></div></div></div>
+
+  <div class="grid g2">
+    <div class="card"><h2>AI検知履歴</h2><div class="body tight"><div class="scroll">
+      ${cands.length?`<table class="t"><thead><tr><th>年月</th><th>優先度</th><th>商品</th><th>判定</th><th>状態</th><th></th></tr></thead><tbody>
+      ${cands.map(x=>`<tr><td class="w">${x.ym}</td><td>${priChip(x.priority)}</td><td>${esc(prodName(x.product_id))}</td>
+        <td class="w"><span class="tag">${x.rule_code}</span></td><td class="w">${STATUS_JA[x.status]}</td>
+        <td><button class="btn sm ghost" onclick="candDetail('${x.id}')">詳細</button></td></tr>`).join('')}
+      </tbody></table>`:'<div class="empty">検知履歴はありません</div>'}
+    </div></div></div>
+    <div class="card"><h2>提案履歴と結果</h2><div class="body tight"><div class="scroll">
+      ${targets.length?`<table class="t"><thead><tr><th>プラン</th><th>状態</th><th>送付</th><th>結果</th><th class="num">金額</th></tr></thead><tbody>
+      ${targets.map(t=>{
+        const p=byId(S.t.offer_plans,t.offer_plan_id);
+        const d=S.t.offer_deliveries.find(x=>x.offer_target_id===t.id);
+        const r=S.t.offer_results.find(x=>x.offer_target_id===t.id);
+        return `<tr><td><button class="link" onclick="go('planEdit',{id:'${t.offer_plan_id}'})">${esc(p?.title||'—')}</button></td>
+          <td class="w">${STATUS_JA[p?.status]||'—'}</td><td class="w">${d?d.sent_at:'<span class="hint">未送付</span>'}</td>
+          <td class="w">${r?STATUS_JA[r.result_code]:'<span class="hint">未登録</span>'}</td>
+          <td class="num">${r?yen(r.amount||0):'—'}</td></tr>`;
+      }).join('')}</tbody></table>`:'<div class="empty">提案履歴はありません</div>'}
+    </div></div></div>
+  </div>`;
+};
+
+function editCustomer(id){
+  const c=byId(S.t.customers,id);
+  openModal('顧客情報を編集',`
+    <label class="f"><span>施設名</span><input type="text" id="ec_name" value="${esc(c.name)}"></label>
+    <div class="grid g2">
+      <label class="f"><span>担当営業</span><select id="ec_owner">${S.t.users.filter(u=>u.role==='sales').map(u=>`<option value="${u.id}" ${c.sales_owner_id===u.id?'selected':''}>${esc(u.name)}</option>`).join('')}</select></label>
+      <label class="f"><span>ランク</span><select id="ec_rank">${['S','A','B','C'].map(r=>`<option ${c.rank===r?'selected':''}>${r}</option>`).join('')}</select></label>
+      <label class="f"><span>都道府県</span><input type="text" id="ec_pref" value="${esc(c.pref||'')}"></label>
+      <label class="f"><span>提案可否</span><select id="ec_off"><option value="1" ${c.offerable?'selected':''}>提案可</option><option value="0" ${!c.offerable?'selected':''}>提案停止</option></select></label>
+    </div>
+    <label class="f"><span>備考</span><textarea id="ec_note">${esc(c.note||'')}</textarea></label>`,
+    `<button class="btn ghost" onclick="closeModal()">キャンセル</button><button class="btn" onclick="saveCustomer('${id}')">保存する</button>`);
+}
+async function saveCustomer(id){
+  const before={...byId(S.t.customers,id)};
+  const patch={name:$('#ec_name').value.trim(),sales_owner_id:$('#ec_owner').value,rank:$('#ec_rank').value,
+    pref:$('#ec_pref').value.trim(),offerable:$('#ec_off').value==='1',note:$('#ec_note').value.trim()};
+  await DB.update('customers',id,patch);
+  await audit('update','customers',id,before,patch);
+  closeModal(); toast('保存しました'); render();
+}
+
+/* ============================ 商品 §4.2 ============================== */
+VIEWS.products = function(){
+  return `<div class="bar">${CAN.master()?`<button class="btn" onclick="editProduct()">商品を追加</button>`:''}</div>
+  <div class="card"><div class="body tight"><div class="scroll">
+  <table class="t sticky-h"><thead><tr><th>SKU</th><th>商品名</th><th>カテゴリ</th><th class="num">通常価格</th>
+    <th class="num">最低提案価格</th><th class="num">原価</th><th class="num">粗利率</th><th>納期</th><th>グループ</th><th>提案可否</th><th></th></tr></thead><tbody>
+  ${S.t.products.map(p=>`<tr>
+    <td class="w">${esc(p.sku)}</td><td>${esc(p.name)}</td><td class="w">${esc(p.category)}</td>
+    <td class="num">${yen(p.list_price)}</td><td class="num">${yen(p.floor_price)}</td><td class="num">${yen(p.cost)}</td>
+    <td class="num">${p.cost&&p.list_price?pct((p.list_price-p.cost)/p.list_price,0):'—'}</td>
+    <td class="w">${esc(p.lead_time||'—')}</td><td class="w">${esc(p.group_code||'—')}</td>
+    <td>${p.active_flag?'<span class="tag on">可</span>':'<span class="tag warn">停止</span>'}</td>
+    <td>${CAN.master()?`<button class="btn sm ghost" onclick="editProduct('${p.id}')">編集</button>`:''}</td></tr>`).join('')}
+  </tbody></table></div></div></div>`;
+};
+function editProduct(id){
+  const p = id?byId(S.t.products,id):{sku:'',name:'',category:'',list_price:'',floor_price:'',cost:'',lead_time:'',group_code:'',active_flag:true};
+  openModal(id?'商品を編集':'商品を追加',`
+    <div class="grid g2">
+      <label class="f"><span>SKU</span><input type="text" id="ep_sku" value="${esc(p.sku)}"></label>
+      <label class="f"><span>商品名</span><input type="text" id="ep_name" value="${esc(p.name)}"></label>
+      <label class="f"><span>カテゴリ</span><input type="text" id="ep_cat" value="${esc(p.category)}"></label>
+      <label class="f"><span>関連商品グループ</span><input type="text" id="ep_grp" value="${esc(p.group_code||'')}" placeholder="booster / filler など"></label>
+      <label class="f"><span>通常価格</span><input type="number" id="ep_list" value="${p.list_price}"></label>
+      <label class="f"><span>最低提案価格</span><input type="number" id="ep_floor" value="${p.floor_price}"></label>
+      <label class="f"><span>原価</span><input type="number" id="ep_cost" value="${p.cost}"></label>
+      <label class="f"><span>標準リードタイム</span><input type="text" id="ep_lead" value="${esc(p.lead_time||'')}"></label>
+      <label class="f"><span>提案可否</span><select id="ep_act"><option value="1" ${p.active_flag?'selected':''}>提案可</option><option value="0" ${!p.active_flag?'selected':''}>販売停止</option></select></label>
+    </div>`,
+    `<button class="btn ghost" onclick="closeModal()">キャンセル</button><button class="btn" onclick="saveProduct(${id?`'${id}'`:'null'})">保存する</button>`);
+}
+async function saveProduct(id){
+  const v={sku:$('#ep_sku').value.trim(),name:$('#ep_name').value.trim(),category:$('#ep_cat').value.trim(),
+    group_code:$('#ep_grp').value.trim(),list_price:+$('#ep_list').value||0,floor_price:+$('#ep_floor').value||0,
+    cost:+$('#ep_cost').value||0,lead_time:$('#ep_lead').value.trim(),active_flag:$('#ep_act').value==='1'};
+  if(!v.name){ toast('商品名を入力してください'); return; }
+  if(id){ const before={...byId(S.t.products,id)}; await DB.update('products',id,v); await audit('update','products',id,before,v); }
+  else  { const r=await DB.insert('products',{id:uid(),...v}); await audit('create','products',r.id,null,v); }
+  closeModal(); toast('保存しました'); render();
+}
+</script>
+<script>
+/* =========================================================================
+   §6 提案プラン管理 / §8.4-8.6 / §9 ステータス / §10 結果
+   ========================================================================= */
+const PLAN_TYPE = {routine:'定例単月',individual:'個別対応',ai:'AI発見型'};
+
+VIEWS.plans = function(){
+  const list = S.t.offer_plans.filter(p=>{
+    if(S.me.role!=='sales') return true;
+    return p.created_by===S.me.id || S.t.offer_targets.some(t=>t.offer_plan_id===p.id && mine(byId(S.t.customers,t.customer_id)));
+  }).sort((a,b)=>(b.created_at||'')<(a.created_at||'')?-1:1);
+
+  return `<div class="bar">
+    ${CAN.edit()?`<button class="btn" onclick="newPlan('routine')">定例単月プランを作成</button>
+    <button class="btn ghost" onclick="newPlan('individual')">個別対応プランを作成</button>`:''}
+  </div>
+  <div class="card"><div class="body tight"><div class="scroll">
+  ${list.length?`<table class="t sticky-h"><thead><tr><th>種別</th><th>プラン名</th><th>対象商品</th>
+    <th class="num">対象顧客</th><th>有効期間</th><th>ステータス</th><th>作成者</th><th></th></tr></thead><tbody>
+  ${list.map(p=>{
+    const items=S.t.offer_plan_items.filter(i=>i.offer_plan_id===p.id);
+    const tg=S.t.offer_targets.filter(t=>t.offer_plan_id===p.id);
+    const pn=[...new Set(items.map(i=>prodName(i.product_id)))].join(' / ');
+    const expired = p.status==='approved'&&p.end_date&&days(TODAY,p.end_date)>0;
+    return `<tr><td class="w"><span class="tag">${PLAN_TYPE[p.type]}</span></td>
+      <td><button class="link" onclick="go('planEdit',{id:'${p.id}'})">${esc(p.title)}</button></td>
+      <td>${esc(pn||'—')}</td><td class="num">${tg.length}</td>
+      <td class="w">${p.start_date||'—'} 〜 ${p.end_date||'—'}${expired?' <span class="tag warn">期限超過</span>':''}</td>
+      <td class="w"><span class="tag ${p.status==='approved'?'on':p.status==='rejected'?'warn':''}">${STATUS_JA[p.status]}</span></td>
+      <td class="w">${esc(userName(p.created_by))}</td>
+      <td class="w"><button class="btn sm ghost" onclick="go('planEdit',{id:'${p.id}'})">開く</button></td></tr>`;
+  }).join('')}</tbody></table>`
+  :`<div class="empty"><b>プランがありません</b>AI候補から作成するか、定例プランを新規作成してください。</div>`}
+  </div></div></div>`;
+};
+
+/* --- 新規作成 --- */
+async function newPlan(type, customerId, productId){
+  const p = byId(S.t.products, productId) || null;
+  const title = type==='routine'
+    ? `${TODAY.getFullYear()}年${TODAY.getMonth()+1}月 ${p?p.name+' ':''}特別提案`
+    : `${custName(customerId)||''} 個別提案（${TODAY.getMonth()+1}月）`;
+  const plan = await DB.insert('offer_plans',{
+    id:uid(), type, title, start_date:d2s(TODAY), end_date:d2s(addDays(TODAY,21)),
+    status:'draft', created_by:S.me.id, memo:'', comment_text:'', created_at:new Date().toISOString()
+  });
+  if(p) await addPlanItemRows(plan.id, p);
+  if(customerId) await DB.insert('offer_targets',{id:uid(), offer_plan_id:plan.id, customer_id:customerId, ai_candidate_id:null, status:'unsent', qty:null, rule_code:null});
+  await audit('create','offer_plans',plan.id,null,{type,title});
+  go('planEdit',{id:plan.id});
+}
+
+async function addPlanItemRows(planId, p, baseQty){
+  const q = baseQty || 30;
+  const tiers = [[q, Math.round(q*1.6)-1, 0.92],[Math.round(q*1.6), Math.round(q*3)-1, 0.88],[Math.round(q*3), null, 0.84]];
+  for(const [from,to,rate] of tiers){
+    let price = Math.round(p.list_price*rate/100)*100;
+    if(p.floor_price) price = Math.max(price, p.floor_price);
+    await DB.insert('offer_plan_items',{id:uid(), offer_plan_id:planId, product_id:p.id,
+      qty_from:from, qty_to:to, list_price:p.list_price, offer_price:price});
+  }
+}
+
+async function newPlanFromCand(candId){
+  const c = byId(S.t.ai_candidates,candId);
+  const p = byId(S.t.products,c.product_id);
+  const plan = await DB.insert('offer_plans',{
+    id:uid(), type:'ai', title:`${TODAY.getFullYear()}年${TODAY.getMonth()+1}月 ${p.name} 特別提案`,
+    start_date:d2s(TODAY), end_date:d2s(addDays(TODAY,21)), status:'draft', created_by:S.me.id,
+    memo:`AI候補 ${c.rule_code}（${RULES[c.rule_code].name}／${c.score}点）から作成\n根拠：${c.reason_text}`,
+    comment_text:'', created_at:new Date().toISOString()
+  });
+  await addPlanItemRows(plan.id, p, c.rec_qty);
+  await DB.insert('offer_targets',{id:uid(), offer_plan_id:plan.id, customer_id:c.customer_id,
+    ai_candidate_id:c.id, status:'unsent', qty:c.rec_qty, rule_code:c.rule_code});
+  await DB.update('ai_candidates',c.id,{status:'created'});
+  await audit('create','offer_plans',plan.id,null,{from_candidate:candId});
+  go('planEdit',{id:plan.id});
+}
+
+async function bulkCreate(){
+  const cands=[...CSEL].map(id=>byId(S.t.ai_candidates,id)).filter(Boolean);
+  const g = groupBy(cands,c=>c.product_id);
+  let first=null;
+  for(const [pid,arr] of g){
+    const p=byId(S.t.products,pid);
+    const plan = await DB.insert('offer_plans',{
+      id:uid(), type:'ai', title:`${TODAY.getFullYear()}年${TODAY.getMonth()+1}月 ${p.name} 特別提案`,
+      start_date:d2s(TODAY), end_date:d2s(addDays(TODAY,21)), status:'draft', created_by:S.me.id,
+      memo:`AI候補 ${arr.length}件から一括作成`, comment_text:'', created_at:new Date().toISOString()
+    });
+    await addPlanItemRows(plan.id, p, Math.round(avg(arr.map(a=>a.rec_qty))));
+    for(const c of arr){
+      await DB.insert('offer_targets',{id:uid(), offer_plan_id:plan.id, customer_id:c.customer_id,
+        ai_candidate_id:c.id, status:'unsent', qty:c.rec_qty, rule_code:c.rule_code});
+      await DB.update('ai_candidates',c.id,{status:'created'});
+    }
+    first = first||plan.id;
+  }
+  CSEL.clear();
+  toast(`${g.size}件のプランを作成しました`);
+  if(first) go('planEdit',{id:first});
+}
+
+/* --- §8.4 プラン作成 / 編集 --- */
+VIEWS.planEdit = function(){
+  const plan = byId(S.t.offer_plans, S.route.params.id);
+  if(!plan) return `<div class="empty"><b>プランが見つかりません</b><button class="link" onclick="go('plans')">一覧へ戻る</button></div>`;
+  const items = S.t.offer_plan_items.filter(i=>i.offer_plan_id===plan.id);
+  const targets = S.t.offer_targets.filter(t=>t.offer_plan_id===plan.id);
+  const ro = !(CAN.edit()&&['draft','rejected'].includes(plan.status));
+  const warns = marginWarnings(items);
+  const appr = S.t.approvals.filter(a=>a.offer_plan_id===plan.id).sort((a,b)=>a.approved_at<b.approved_at?1:-1);
+
+  return `
+  <div class="bar"><button class="btn sm ghost" onclick="go('plans')">← プラン一覧</button>
+    <span class="tag">${PLAN_TYPE[plan.type]}</span>
+    <span class="tag ${plan.status==='approved'?'on':plan.status==='rejected'?'warn':''}">${STATUS_JA[plan.status]}</span>
+    <div class="sp"></div>
+    ${targets.length===1?`<button class="btn ghost" onclick="go('proposal',{id:'${targets[0].id}'})">提案書を見る</button>`:''}
+    ${!ro?`<button class="btn ghost" onclick="savePlan('${plan.id}')">下書きを保存</button>
+      <button class="btn" onclick="submitPlan('${plan.id}')">承認申請する</button>`:''}
+    ${plan.status==='approved'?`<button class="btn" onclick="go('delivery')">送付管理へ</button>`:''}
+  </div>
+
+  ${plan.status==='rejected'&&appr[0]?`<div class="alert">差戻し：${esc(appr[0].comment||'コメントなし')}（${esc(userName(appr[0].approver_id))}）</div>`:''}
+  ${warns.length?`<div class="alert">${warns.map(esc).join('<br>')}<br>この条件で申請する場合は承認が必須です。</div>`:''}
+
+  <div class="grid g2">
+    <div class="card"><h2>基本情報</h2><div class="body">
+      <label class="f"><span>プラン名</span><input type="text" id="pl_title" value="${esc(plan.title)}" ${ro?'disabled':''}></label>
+      <div class="grid g2" style="gap:10px">
+        <label class="f"><span>開始日</span><input type="date" id="pl_start" value="${plan.start_date||''}" ${ro?'disabled':''}></label>
+        <label class="f"><span>終了日（有効期限）</span><input type="date" id="pl_end" value="${plan.end_date||''}" ${ro?'disabled':''}></label>
+      </div>
+      <label class="f"><span>納期目安</span><input type="text" id="pl_lead" value="${esc(plan.lead_time||items.map(i=>byId(S.t.products,i.product_id)?.lead_time).find(Boolean)||'')}" ${ro?'disabled':''}></label>
+      <label class="f"><span>社内メモ（提案書には出ません）</span><textarea id="pl_memo" ${ro?'disabled':''}>${esc(plan.memo||'')}</textarea></label>
+    </div></div>
+
+    <div class="card"><h2>顧客向けコメント<span class="r">${ro?'':`<button class="btn sm ghost" onclick="regenComment('${plan.id}')">自動生成</button>`}</span></h2>
+      <div class="body">
+      <label class="f"><span>提案書の本文</span><textarea id="pl_comment" style="min-height:150px" ${ro?'disabled':''}>${esc(plan.comment_text||genCustomerComment(plan,items,null,candOf(targets[0])))}</textarea></label>
+      <label class="f"><span>注意事項</span><textarea id="pl_note" ${ro?'disabled':''}>${esc(plan.note_text||'輸入商品のため、在庫状況により納期が変動する場合がございます。ご発注後のキャンセル・返品はお受けできません。')}</textarea></label>
+    </div></div>
+  </div>
+
+  <div class="card"><h2>対象商品と数量条件<span class="r">${ro?'':`<button class="btn sm ghost" onclick="addItemRow('${plan.id}')">数量帯を追加</button>`}</span></h2>
+    <div class="body tight"><div class="scroll">
+    ${items.length?`<table class="t"><thead><tr><th>商品</th><th class="num">数量（下限）</th><th class="num">数量（上限）</th>
+      <th class="num">通常価格</th><th class="num">特別価格</th><th class="num">値引率</th><th class="num">原価</th><th class="num">粗利率</th><th></th></tr></thead><tbody>
+    ${items.map(i=>{
+      const p=byId(S.t.products,i.product_id)||{};
+      const mr = i.offer_price&&p.cost ? (i.offer_price-p.cost)/i.offer_price : null;
+      const bad = (mr!=null&&mr<S.settings.min_margin_rate) || (p.floor_price&&i.offer_price<p.floor_price);
+      return `<tr><td>${esc(p.name)}<div class="hint">${esc(p.sku||'')}</div></td>
+        <td class="num"><input type="number" style="width:80px" value="${i.qty_from||''}" ${ro?'disabled':''} onchange="setItem('${i.id}','qty_from',this.value)"></td>
+        <td class="num"><input type="number" style="width:80px" value="${i.qty_to||''}" ${ro?'disabled':''} onchange="setItem('${i.id}','qty_to',this.value)" placeholder="以上"></td>
+        <td class="num">${yen(i.list_price)}</td>
+        <td class="num"><input type="number" style="width:100px" value="${i.offer_price||''}" ${ro?'disabled':''} onchange="setItem('${i.id}','offer_price',this.value)"></td>
+        <td class="num">${i.list_price?pct(1-i.offer_price/i.list_price,1):'—'}</td>
+        <td class="num">${yen(p.cost)}</td>
+        <td class="num ${bad?'':''}">${mr!=null?`<span class="${bad?'tag warn':''}">${pct(mr,1)}</span>`:'—'}</td>
+        <td>${ro?'':`<button class="btn sm danger" onclick="delItem('${i.id}')">削除</button>`}</td></tr>`;
+    }).join('')}</tbody></table>`:`<div class="empty"><b>商品が未設定です</b>${ro?'':'「数量帯を追加」から商品と条件を登録してください。'}</div>`}
+    </div></div></div>
+
+  <div class="card"><h2>対象顧客<span class="r">
+    ${ro?'':`<button class="btn sm ghost" onclick="pickTargets('${plan.id}')">顧客を選ぶ</button>
+      ${plan.type==='routine'?`<button class="btn sm ghost" onclick="pickByCondition('${plan.id}')">条件で一括追加</button>`:''}`}</span></h2>
+    <div class="body tight"><div class="scroll">
+    ${targets.length?`<table class="t"><thead><tr><th>施設名</th><th>担当</th><th class="num">提案数量</th><th>根拠</th><th class="num">提案金額</th><th>状態</th><th></th></tr></thead><tbody>
+    ${targets.map(t=>{
+      const cu=byId(S.t.customers,t.customer_id)||{};
+      const c=candOf(t);
+      return `<tr><td>${esc(cu.name)}<div class="hint">${esc(cu.pref||'')} / ランク${esc(cu.rank||'')}</div></td>
+        <td class="w">${esc(userName(cu.sales_owner_id))}</td>
+        <td class="num"><input type="number" style="width:80px" value="${t.qty||''}" ${ro?'disabled':''} onchange="setTarget('${t.id}','qty',this.value)"></td>
+        <td style="font-size:12.5px">${c?`<span class="tag">${c.rule_code}</span> ${esc(c.reason_text)}`:'<span class="hint">—</span>'}</td>
+        <td class="num">${yen(targetAmount(t))}</td>
+        <td class="w">${STATUS_JA[t.status]||t.status}</td>
+        <td class="w"><button class="btn sm ghost" onclick="go('proposal',{id:'${t.id}'})">提案書</button>
+          ${ro?'':`<button class="btn sm danger" onclick="delTarget('${t.id}')">除外</button>`}</td></tr>`;
+    }).join('')}</tbody></table>`:`<div class="empty"><b>対象顧客が未設定です</b>${ro?'':'「顧客を選ぶ」から対象を追加してください。'}</div>`}
+    </div></div></div>
+
+  ${appr.length?`<div class="card"><h2>承認履歴</h2><div class="body tight"><table class="t"><tbody>
+    ${appr.map(a=>`<tr><td class="w">${a.approved_at?.slice(0,10)||''}</td><td class="w">${esc(userName(a.approver_id))}</td>
+      <td class="w">${STATUS_JA[a.status]||a.status}</td><td>${esc(a.comment||'')}</td></tr>`).join('')}
+  </tbody></table></div></div>`:''}`;
+};
+
+function candOf(t){ return t?.ai_candidate_id ? byId(S.t.ai_candidates,t.ai_candidate_id) : null; }
+function marginWarnings(items){
+  const w=[];
+  for(const i of items){
+    const p=byId(S.t.products,i.product_id); if(!p||!i.offer_price) continue;
+    if(p.floor_price && i.offer_price<p.floor_price) w.push(`${p.name}：特別価格 ${yen(i.offer_price)} が最低提案価格 ${yen(p.floor_price)} を下回っています。`);
+    else if(p.cost){
+      const mr=(i.offer_price-p.cost)/i.offer_price;
+      if(mr<S.settings.min_margin_rate) w.push(`${p.name}：粗利率 ${pct(mr,1)} が基準 ${pct(S.settings.min_margin_rate,0)} を下回っています。`);
+    }
+  }
+  return w;
+}
+async function setItem(id,key,val){
+  const before={...byId(S.t.offer_plan_items,id)};
+  const v = val===''?null:+val;
+  await DB.update('offer_plan_items',id,{[key]:v});
+  await audit('update','offer_plan_items',id,before,{[key]:v});
+  render();
+}
+async function delItem(id){ await DB.remove('offer_plan_items',id); render(); }
+async function setTarget(id,key,val){ await DB.update('offer_targets',id,{[key]: val===''?null:+val}); render(); }
+async function delTarget(id){ await DB.remove('offer_targets',id); render(); }
+
+async function addItemRow(planId){
+  const opts = S.t.products.filter(p=>p.active_flag).map(p=>`<option value="${p.id}">${esc(p.name)}（${esc(p.sku)}）</option>`).join('');
+  openModal('数量帯を追加',`
+    <label class="f"><span>商品</span><select id="ai_p">${opts}</select></label>
+    <div class="grid g3" style="gap:10px">
+      <label class="f"><span>数量（下限）</span><input type="number" id="ai_from" value="30"></label>
+      <label class="f"><span>数量（上限）</span><input type="number" id="ai_to" placeholder="空欄＝以上"></label>
+      <label class="f"><span>特別価格</span><input type="number" id="ai_price"></label>
+    </div>
+    <p class="hint">特別価格を空欄にすると通常価格の8%引きで登録します。</p>`,
+    `<button class="btn ghost" onclick="closeModal()">キャンセル</button><button class="btn" onclick="doAddItem('${planId}')">追加する</button>`);
+  $('#ai_p').onchange=()=>{ const p=byId(S.t.products,$('#ai_p').value); $('#ai_price').placeholder=Math.round(p.list_price*0.92); };
+  $('#ai_p').onchange();
+}
+async function doAddItem(planId){
+  const p=byId(S.t.products,$('#ai_p').value);
+  const price = +$('#ai_price').value || Math.round(p.list_price*0.92);
+  await DB.insert('offer_plan_items',{id:uid(),offer_plan_id:planId,product_id:p.id,
+    qty_from:+$('#ai_from').value||null, qty_to:+$('#ai_to').value||null, list_price:p.list_price, offer_price:price});
+  closeModal(); render();
+}
+
+function pickTargets(planId){
+  const plan=byId(S.t.offer_plans,planId);
+  const cur=new Set(S.t.offer_targets.filter(t=>t.offer_plan_id===planId).map(t=>t.customer_id));
+  const list=S.t.customers.filter(c=>c.offerable&&mine(c));
+  openModal('顧客を選ぶ',`
+    <p class="hint">${plan.type==='individual'?'個別対応プランは1顧客が対象です。':'複数選択できます。提案停止の顧客は表示されません。'}</p>
+    <input type="text" placeholder="施設名で絞り込み" oninput="filterPick(this.value)" style="margin-bottom:10px">
+    <div class="scroll" style="max-height:380px"><table class="t" id="pickTbl"><tbody>
+    ${list.map(c=>`<tr data-n="${esc(c.name)}"><td style="width:28px"><input type="checkbox" value="${c.id}" ${cur.has(c.id)?'checked':''}></td>
+      <td>${esc(c.name)}<div class="hint">${esc(c.pref)} / ランク${esc(c.rank)} / ${esc(userName(c.sales_owner_id))}</div></td>
+      <td class="num">${yen(S.custStats.get(c.id)?.total12||0)}</td></tr>`).join('')}
+    </tbody></table></div>`,
+    `<button class="btn ghost" onclick="closeModal()">キャンセル</button><button class="btn" onclick="applyTargets('${planId}')">確定する</button>`);
+}
+function filterPick(q){ $$('#pickTbl tbody tr').forEach(tr=>{ tr.style.display = !q||tr.dataset.n.includes(q)?'':'none'; }); }
+async function applyTargets(planId){
+  const plan=byId(S.t.offer_plans,planId);
+  const chosen=$$('#pickTbl input:checked').map(i=>i.value);
+  if(plan.type==='individual'&&chosen.length>1){ toast('個別対応プランは1顧客のみ選択できます'); return; }
+  const cur=S.t.offer_targets.filter(t=>t.offer_plan_id===planId);
+  for(const t of cur) if(!chosen.includes(t.customer_id)) await DB.remove('offer_targets',t.id);
+  for(const cid of chosen) if(!cur.some(t=>t.customer_id===cid)){
+    const items=S.t.offer_plan_items.filter(i=>i.offer_plan_id===planId);
+    await DB.insert('offer_targets',{id:uid(),offer_plan_id:planId,customer_id:cid,ai_candidate_id:null,
+      status:'unsent', qty: items[0]?.qty_from||null, rule_code:null});
+  }
+  closeModal(); toast('対象顧客を更新しました'); render();
+}
+
+function pickByCondition(planId){
+  openModal('条件で一括追加',`
+    <div class="grid g2" style="gap:10px">
+      <label class="f"><span>顧客ランク</span><select id="pc_rank"><option value="">すべて</option>${['S','A','B','C'].map(r=>`<option>${r}</option>`).join('')}</select></label>
+      <label class="f"><span>担当営業</span><select id="pc_owner"><option value="">すべて</option>${S.t.users.filter(u=>u.role==='sales').map(u=>`<option value="${u.id}">${esc(u.name)}</option>`).join('')}</select></label>
+      <label class="f"><span>対象商品の購入実績</span><select id="pc_hist">
+        <option value="any">問わない</option><option value="yes">購入実績あり（12ヶ月）</option><option value="no">購入実績なし（12ヶ月）</option></select></label>
+      <label class="f"><span>直近12ヶ月売上が</span><input type="number" id="pc_amt" placeholder="円以上"></label>
+    </div>`,
+    `<button class="btn ghost" onclick="closeModal()">キャンセル</button><button class="btn" onclick="applyCondition('${planId}')">追加する</button>`);
+}
+async function applyCondition(planId){
+  const rank=$('#pc_rank').value, owner=$('#pc_owner').value, hist=$('#pc_hist').value, amt=+$('#pc_amt').value||0;
+  const items=S.t.offer_plan_items.filter(i=>i.offer_plan_id===planId);
+  const pids=[...new Set(items.map(i=>i.product_id))];
+  const cur=new Set(S.t.offer_targets.filter(t=>t.offer_plan_id===planId).map(t=>t.customer_id));
+  let n=0;
+  for(const c of S.t.customers){
+    if(!c.offerable||!mine(c)||cur.has(c.id)) continue;
+    if(rank&&c.rank!==rank) continue;
+    if(owner&&c.sales_owner_id!==owner) continue;
+    if((S.custStats.get(c.id)?.total12||0)<amt) continue;
+    if(hist!=='any'&&pids.length){
+      const has = pids.some(pid=>{ const m=metrics(c.id,pid); return m&&m.cnt12>0; });
+      if(hist==='yes'&&!has) continue;
+      if(hist==='no'&&has) continue;
+    }
+    await DB.insert('offer_targets',{id:uid(),offer_plan_id:planId,customer_id:c.id,ai_candidate_id:null,
+      status:'unsent', qty: items[0]?.qty_from||null, rule_code:null});
+    n++;
+  }
+  closeModal(); toast(`${n}件を追加しました`); render();
+}
+
+async function regenComment(planId){
+  const plan=byId(S.t.offer_plans,planId);
+  const items=S.t.offer_plan_items.filter(i=>i.offer_plan_id===planId);
+  const t=S.t.offer_targets.find(x=>x.offer_plan_id===planId);
+  const cand=candOf(t);
+  let text = genCustomerComment(plan,items,byId(S.t.customers,t?.customer_id),cand);
+  const ai = await aiRefine({task:'customer_comment',plan,items,candidate:cand});
+  if(ai?.text) text = ai.text;
+  $('#pl_comment').value = text;
+  toast('コメントを生成しました');
+}
+
+async function savePlan(id, silent){
+  const before={...byId(S.t.offer_plans,id)};
+  const patch={title:$('#pl_title').value.trim(), start_date:$('#pl_start').value, end_date:$('#pl_end').value,
+    lead_time:$('#pl_lead').value.trim(), memo:$('#pl_memo').value, comment_text:$('#pl_comment').value, note_text:$('#pl_note').value};
+  await DB.update('offer_plans',id,patch);
+  await audit('update','offer_plans',id,before,patch);
+  if(!silent){ toast('下書きを保存しました'); render(); }
+}
+async function submitPlan(id){
+  await savePlan(id,true);
+  const plan=byId(S.t.offer_plans,id);
+  const items=S.t.offer_plan_items.filter(i=>i.offer_plan_id===id);
+  const targets=S.t.offer_targets.filter(t=>t.offer_plan_id===id);
+  if(!items.length){ toast('対象商品と数量条件を登録してください'); return; }
+  if(!targets.length){ toast('対象顧客を登録してください'); return; }
+  if(!plan.end_date){ toast('有効期限を入力してください'); return; }
+  await DB.update('offer_plans',id,{status:'pending'});
+  await DB.insert('approvals',{id:uid(),offer_plan_id:id,approver_id:null,status:'pending',
+    comment:'', requested_by:S.me.id, requested_at:new Date().toISOString(), approved_at:null});
+  await audit('submit','offer_plans',id,{status:plan.status},{status:'pending'});
+  toast('承認申請しました');
+  go('approvals');
+}
+
+/* --- §8.5 承認 --- */
+VIEWS.approvals = function(){
+  const pend = S.t.offer_plans.filter(p=>p.status==='pending');
+  const done = S.t.approvals.filter(a=>a.status!=='pending').sort((a,b)=>a.approved_at<b.approved_at?1:-1).slice(0,20);
+  if(!CAN.approve()) return `<div class="empty"><b>承認権限がありません</b>承認者または管理者でログインしてください。</div>`;
+  return `<div class="card"><h2>承認待ち ${pend.length} 件</h2><div class="body tight"><div class="scroll">
+  ${pend.length?`<table class="t"><thead><tr><th>種別</th><th>プラン名</th><th>商品 / 条件</th><th class="num">対象</th><th>期限</th><th>申請者</th><th></th></tr></thead><tbody>
+  ${pend.map(p=>{
+    const items=S.t.offer_plan_items.filter(i=>i.offer_plan_id===p.id);
+    const w=marginWarnings(items);
+    return `<tr><td class="w"><span class="tag">${PLAN_TYPE[p.type]}</span></td>
+      <td>${esc(p.title)}${w.length?'<div><span class="tag warn">粗利基準割れ</span></div>':''}</td>
+      <td style="font-size:12.5px">${items.map(i=>`${esc(prodName(i.product_id))} ${num(i.qty_from)}${i.qty_to?'〜'+num(i.qty_to):'以上'} → ${yen(i.offer_price)}`).join('<br>')}</td>
+      <td class="num">${S.t.offer_targets.filter(t=>t.offer_plan_id===p.id).length}</td>
+      <td class="w">${p.end_date||'—'}</td><td class="w">${esc(userName(p.created_by))}</td>
+      <td class="w"><button class="btn sm" onclick="approveModal('${p.id}')">確認する</button></td></tr>`;
+  }).join('')}</tbody></table>`:`<div class="empty"><b>承認待ちはありません</b>申請されたプランがここに並びます。</div>`}
+  </div></div></div>
+  <div class="card"><h2>最近の承認履歴</h2><div class="body tight"><div class="scroll">
+  <table class="t"><tbody>${done.map(a=>{
+    const p=byId(S.t.offer_plans,a.offer_plan_id);
+    return `<tr><td class="w">${a.approved_at?.slice(0,10)||''}</td><td>${esc(p?.title||'—')}</td>
+      <td class="w"><span class="tag ${a.status==='approved'?'on':'warn'}">${STATUS_JA[a.status]||a.status}</span></td>
+      <td class="w">${esc(userName(a.approver_id))}</td><td>${esc(a.comment||'')}</td></tr>`;
+  }).join('')||'<tr><td class="hint" style="padding:14px">履歴はありません</td></tr>'}</tbody></table>
+  </div></div></div>`;
+};
+
+function approveModal(planId){
+  const p=byId(S.t.offer_plans,planId);
+  const items=S.t.offer_plan_items.filter(i=>i.offer_plan_id===planId);
+  const targets=S.t.offer_targets.filter(t=>t.offer_plan_id===planId);
+  const w=marginWarnings(items);
+  openModal(p.title,`
+    ${w.length?`<div class="alert">${w.map(esc).join('<br>')}</div>`:''}
+    <table class="t"><thead><tr><th>商品</th><th class="num">数量</th><th class="num">通常価格</th><th class="num">特別価格</th>
+      <th class="num">値引率</th><th class="num">原価</th><th class="num">粗利率</th><th class="num">粗利額/単位</th></tr></thead><tbody>
+    ${items.map(i=>{
+      const pr=byId(S.t.products,i.product_id)||{};
+      const mr=i.offer_price&&pr.cost?(i.offer_price-pr.cost)/i.offer_price:null;
+      return `<tr><td>${esc(pr.name)}</td><td class="num">${num(i.qty_from)}${i.qty_to?'〜'+num(i.qty_to):'以上'}</td>
+        <td class="num">${yen(i.list_price)}</td><td class="num"><b>${yen(i.offer_price)}</b></td>
+        <td class="num">${pct(1-i.offer_price/i.list_price,1)}</td><td class="num">${yen(pr.cost)}</td>
+        <td class="num">${mr!=null?`<span class="${mr<S.settings.min_margin_rate?'tag warn':''}">${pct(mr,1)}</span>`:'—'}</td>
+        <td class="num">${yen((i.offer_price||0)-(pr.cost||0))}</td></tr>`;
+    }).join('')}</tbody></table>
+    <dl class="dl" style="margin:12px 0">
+      <dt>有効期間</dt><dd>${p.start_date||'—'} 〜 ${p.end_date||'—'}</dd>
+      <dt>対象顧客</dt><dd>${targets.length}件（${targets.slice(0,4).map(t=>esc(custName(t.customer_id))).join('、')}${targets.length>4?' ほか':''}）</dd>
+      <dt>提案金額合計</dt><dd>${yen(sum(targets.map(targetAmount)))}</dd>
+      <dt>社内メモ</dt><dd style="white-space:pre-wrap">${esc(p.memo||'—')}</dd>
+    </dl>
+    <label class="f"><span>コメント（差戻し・却下の場合は必須）</span><textarea id="ap_c"></textarea></label>`,
+    `<button class="btn danger" onclick="decide('${planId}','rejected')">却下</button>
+     <button class="btn ghost" onclick="decide('${planId}','sent_back')">差戻し</button>
+     <button class="btn" onclick="decide('${planId}','approved')">承認する</button>`);
+}
+async function decide(planId,kind){
+  const c=$('#ap_c').value.trim();
+  if(kind!=='approved'&&!c){ toast('コメントを入力してください'); return; }
+  const status = kind==='approved'?'approved':'rejected';
+  const before={...byId(S.t.offer_plans,planId)};
+  await DB.update('offer_plans',planId,{status});
+  const a = S.t.approvals.find(x=>x.offer_plan_id===planId&&x.status==='pending');
+  const patch={approver_id:S.me.id,status:kind==='approved'?'approved':kind==='rejected'?'rejected':'sent_back',
+    comment:c, approved_at:new Date().toISOString()};
+  if(a) await DB.update('approvals',a.id,patch);
+  else await DB.insert('approvals',{id:uid(),offer_plan_id:planId,...patch});
+  await audit(kind,'offer_plans',planId,before,{status,comment:c});
+  closeModal(); toast(kind==='approved'?'承認しました':'差し戻しました'); render();
+}
+
+/* --- §8.6 提案書 --- */
+VIEWS.proposal = function(){
+  const t = byId(S.t.offer_targets, S.route.params.id);
+  if(!t) return `<div class="empty"><b>提案書が見つかりません</b></div>`;
+  const plan=byId(S.t.offer_plans,t.offer_plan_id);
+  const cu=byId(S.t.customers,t.customer_id);
+  const items=S.t.offer_plan_items.filter(i=>i.offer_plan_id===plan.id).sort((a,b)=>(a.qty_from||0)-(b.qty_from||0));
+  const cand=candOf(t);
+  const body = plan.comment_text || genCustomerComment(plan,items,cu,cand);
+  const lead = items.map(i=>byId(S.t.products,i.product_id)?.lead_time).find(Boolean);
+
+  return `<div class="bar noprint"><button class="btn sm ghost" onclick="go('planEdit',{id:'${plan.id}'})">← プランへ戻る</button>
+    <div class="sp"></div>
+    <button class="btn" onclick="window.print()">PDFとして保存 / 印刷</button>
+    <button class="btn ghost" onclick="copyMailText('${t.id}')">メール本文をコピー</button></div>
+  <div class="sheet">
+    <div style="display:flex;align-items:flex-start">
+      <div><h2 class="title">${TODAY.getFullYear()}年${TODAY.getMonth()+1}月 特別ご提案</h2>
+        <div class="note">提案番号：${esc(plan.id.slice(0,8).toUpperCase())}</div></div>
+      <div style="margin-left:auto;text-align:right" class="note">${d2s(TODAY)}<br><b style="font-size:14px">${esc(CONFIG.company.name)}</b></div>
+    </div>
+    <div class="to">${esc(cu.name)} 御中</div>
+    <div class="lead">${esc(body)}</div>
+    <table class="p"><thead><tr><th>商品名</th><th>ご提案数量</th><th>通常価格</th><th>特別価格</th><th>ご提案金額</th></tr></thead><tbody>
+    ${items.map(i=>{
+      const p=byId(S.t.products,i.product_id)||{};
+      const q=i.qty_from||0;
+      return `<tr><td>${esc(p.name)}</td>
+        <td>${num(i.qty_from)}${i.qty_to?`〜${num(i.qty_to)}`:'以上'}${unitOf(p)}</td>
+        <td style="text-align:right">${yen(i.list_price)}</td>
+        <td style="text-align:right"><b>${yen(i.offer_price)}</b></td>
+        <td style="text-align:right">${yen(i.offer_price*q)}〜</td></tr>`;
+    }).join('')}</tbody></table>
+    <table class="p"><tbody>
+      <tr><th style="width:130px">有効期限</th><td>${plan.end_date?jdate(plan.end_date):'—'}</td></tr>
+      <tr><th>納期目安</th><td>${esc(plan.lead_time||lead||'ご発注後にご案内いたします')}</td></tr>
+      <tr><th>注意事項</th><td class="note">${esc(plan.note_text||'輸入商品のため、在庫状況により納期が変動する場合がございます。ご発注後のキャンセル・返品はお受けできません。')}</td></tr>
+    </tbody></table>
+    <div class="foot">
+      <b>${esc(CONFIG.company.name)} ${esc(CONFIG.company.dept)}</b><br>
+      ${esc(CONFIG.company.addr)}<br>
+      担当：${esc(userName(cu.sales_owner_id))}　TEL：${esc(CONFIG.company.tel)}　E-mail：${esc(CONFIG.company.email)}
+    </div>
+  </div>`;
+};
+function copyMailText(tid){
+  const t=byId(S.t.offer_targets,tid), plan=byId(S.t.offer_plans,t.offer_plan_id), cu=byId(S.t.customers,t.customer_id);
+  const items=S.t.offer_plan_items.filter(i=>i.offer_plan_id===plan.id);
+  const lines=[`${cu.name} 御中`,'',plan.comment_text||genCustomerComment(plan,items,cu,candOf(t)),'','【ご提案条件】',
+    ...items.map(i=>{const p=byId(S.t.products,i.product_id);
+      return `・${p.name}　${num(i.qty_from)}${i.qty_to?'〜'+num(i.qty_to):'以上'}${unitOf(p)}　${yen(i.offer_price)}（通常 ${yen(i.list_price)}）`;}),
+    '',`有効期限：${plan.end_date?jdate(plan.end_date):'—'}`,`納期目安：${plan.lead_time||'ご発注後にご案内いたします'}`,'',
+    `${CONFIG.company.name} ${CONFIG.company.dept}　${userName(cu.sales_owner_id)}`,
+    `TEL ${CONFIG.company.tel} / ${CONFIG.company.email}`];
+  navigator.clipboard.writeText(lines.join('\n')).then(()=>toast('メール本文をコピーしました'),()=>toast('コピーできませんでした'));
+}
+
+/* --- §9 §10 送付・結果 --- */
+const DF={mode:'todo'};
+VIEWS.delivery = function(){
+  const rows = S.t.offer_targets.map(t=>{
+    const plan=byId(S.t.offer_plans,t.offer_plan_id);
+    const cu=byId(S.t.customers,t.customer_id);
+    const d=S.t.offer_deliveries.find(x=>x.offer_target_id===t.id);
+    const r=S.t.offer_results.find(x=>x.offer_target_id===t.id);
+    return {t,plan,cu,d,r};
+  }).filter(x=>x.plan&&x.cu&&mine(x.cu))
+    .filter(x=>['approved','expired'].includes(x.plan.status))
+    .filter(x=>DF.mode==='all' ? true : (!x.d||!x.r));
+  const late = x => x.d && !x.r && days(TODAY,x.d.sent_at)>=S.settings.remind_days;
+
+  return `<div class="bar">
+    <button class="btn sm ${DF.mode==='todo'?'':'ghost'}" onclick="DF.mode='todo';render()">未完了のみ</button>
+    <button class="btn sm ${DF.mode==='all'?'':'ghost'}" onclick="DF.mode='all';render()">すべて</button>
+    <div class="sp"></div><span class="hint">送付から${S.settings.remind_days}日を過ぎた未登録案件を強調表示します</span></div>
+  <div class="card"><div class="body tight"><div class="scroll">
+  ${rows.length?`<table class="t sticky-h"><thead><tr><th>施設名</th><th>プラン</th><th class="num">数量</th><th class="num">提案金額</th>
+    <th>期限</th><th>送付</th><th>結果</th><th class="num">受注金額</th><th></th></tr></thead><tbody>
+  ${rows.map(x=>{
+    const left = x.plan.end_date? days(s2d(x.plan.end_date),TODAY):null;
+    return `<tr><td>${esc(x.cu.name)}<div class="hint">${esc(userName(x.cu.sales_owner_id))}</div></td>
+      <td>${esc(x.plan.title)}<div class="hint">${PLAN_TYPE[x.plan.type]}</div></td>
+      <td class="num">${num(x.t.qty)}</td><td class="num">${yen(targetAmount(x.t))}</td>
+      <td class="w">${x.plan.end_date||'—'}${left!=null&&left<=3&&left>=0&&!x.d?` <span class="tag warn">あと${left}日</span>`:''}</td>
+      <td class="w">${x.d?`${x.d.sent_at}<div class="hint">${x.d.channel==='mail'?'メール':x.d.channel==='line'?'LINE':x.d.channel==='visit'?'訪問':'その他'}</div>`
+        :`<button class="btn sm" onclick="sendModal('${x.t.id}')">送付を登録</button>`}</td>
+      <td class="w">${x.r?`<span class="tag ${['won','partial'].includes(x.r.result_code)?'on':''}">${STATUS_JA[x.r.result_code]}</span>
+        ${(x.r.reason_codes||[]).length?`<div class="hint">${(x.r.reason_codes||[]).map(c=>REASONS[c]||c).join('、')}</div>`:''}`
+        :(x.d?`<button class="btn sm ${late(x)?'':'ghost'}" onclick="resultModal('${x.t.id}')">結果を登録</button>`:'<span class="hint">—</span>')}</td>
+      <td class="num">${x.r?yen(x.r.amount||0):'—'}</td>
+      <td class="w"><button class="btn sm ghost" onclick="go('proposal',{id:'${x.t.id}'})">提案書</button>
+        ${x.r?`<button class="btn sm ghost" onclick="resultModal('${x.t.id}')">修正</button>`:''}</td></tr>`;
+  }).join('')}</tbody></table>`:`<div class="empty"><b>対象がありません</b>承認済みプランの提案先がここに並びます。</div>`}
+  </div></div></div>`;
+};
+function sendModal(tid){
+  openModal('送付を登録',`
+    <div class="grid g2" style="gap:10px">
+      <label class="f"><span>送付日</span><input type="date" id="sd_date" value="${d2s(TODAY)}"></label>
+      <label class="f"><span>手段</span><select id="sd_ch"><option value="mail">メール</option><option value="line">LINE</option><option value="visit">訪問</option><option value="fax">FAX</option><option value="other">その他</option></select></label>
+    </div>`,
+    `<button class="btn ghost" onclick="closeModal()">キャンセル</button><button class="btn" onclick="doSend('${tid}')">登録する</button>`);
+}
+async function doSend(tid){
+  await DB.insert('offer_deliveries',{id:uid(),offer_target_id:tid,sent_at:$('#sd_date').value,channel:$('#sd_ch').value,sent_by:S.me.id});
+  await DB.update('offer_targets',tid,{status:'sent'});
+  await audit('send','offer_targets',tid,null,{sent_at:$('#sd_date').value});
+  closeModal(); toast('送付を登録しました'); render();
+}
+function resultModal(tid){
+  const cur=S.t.offer_results.find(x=>x.offer_target_id===tid);
+  const t=byId(S.t.offer_targets,tid);
+  openModal('結果を登録',`
+    <label class="f"><span>結果</span><select id="rs_code" onchange="toggleReasons()">
+      ${['won','partial','pass','lost','no_reply'].map(k=>`<option value="${k}" ${cur?.result_code===k?'selected':''}>${STATUS_JA[k]}</option>`).join('')}</select></label>
+    <fieldset id="rs_reasons"><legend>理由（複数選択可）</legend>
+      ${Object.entries(REASONS).map(([k,v])=>`<label style="display:inline-block;margin-right:14px">
+        <input type="checkbox" value="${k}" ${(cur?.reason_codes||[]).includes(k)?'checked':''}> ${v}</label>`).join('')}</fieldset>
+    <div class="grid g2" style="gap:10px">
+      <label class="f"><span>受注金額</span><input type="number" id="rs_amt" value="${cur?.amount ?? targetAmount(t)}"></label>
+      <label class="f"><span>登録日</span><input type="date" id="rs_date" value="${cur?.registered_at||d2s(TODAY)}"></label>
+    </div>
+    <label class="f"><span>自由記述</span><textarea id="rs_note">${esc(cur?.note||'')}</textarea></label>`,
+    `<button class="btn ghost" onclick="closeModal()">キャンセル</button><button class="btn" onclick="doResult('${tid}')">登録する</button>`);
+  toggleReasons();
+}
+function toggleReasons(){
+  const v=$('#rs_code').value;
+  $('#rs_reasons').style.display = v==='won' ? 'none':'block';
+  $('#rs_amt').closest('label').style.display = ['won','partial'].includes(v)?'block':'none';
+}
+async function doResult(tid){
+  const code=$('#rs_code').value;
+  const reasons=$$('#rs_reasons input:checked').map(i=>i.value);
+  const row={offer_target_id:tid, result_code:code, reason_codes:reasons,
+    amount:['won','partial'].includes(code)?(+$('#rs_amt').value||0):0,
+    note:$('#rs_note').value.trim(), registered_at:$('#rs_date').value};
+  const cur=S.t.offer_results.find(x=>x.offer_target_id===tid);
+  if(cur) await DB.update('offer_results',cur.id,row);
+  else await DB.insert('offer_results',{id:uid(),...row});
+  await DB.update('offer_targets',tid,{status: code==='no_reply'?'sent':'replied'});
+  await audit('result','offer_targets',tid,cur||null,row);
+  closeModal(); toast('結果を登録しました'); render();
+}
+</script>
+<script>
+/* =========================================================================
+   §5 購入実績取込 / §11 レポート / 設定 / 監査ログ / 起動
+   ========================================================================= */
+const IMP = {rows:[], head:[], map:{}, result:null, fileName:''};
+const COLDEF = [
+  ['order_date','注文日',   ['注文日','受注日','日付','order_date','date']],
+  ['customer_id','顧客ID',  ['顧客id','会員id','得意先コード','customer_id','member_id','顧客コード']],
+  ['customer_name','施設名',['施設名','顧客名','会社名','得意先名','customer_name','name']],
+  ['sku','商品ID/SKU',      ['商品id','sku','商品コード','product_id','品番']],
+  ['product_name','商品名', ['商品名','product_name','品名']],
+  ['qty','数量',            ['数量','個数','qty','quantity','点数']],
+  ['unit_price','単価',     ['単価','unit_price','price']],
+  ['amount','売上金額',     ['売上金額','金額','amount','小計','合計']],
+  ['order_no','注文番号',   ['注文番号','伝票番号','order_no','受注番号','注文no']]
+];
+
+VIEWS.import = function(){
+  if(!CAN.import()) return `<div class="empty"><b>取込権限がありません</b>管理者でログインしてください。</div>`;
+  const r=IMP.result;
+  return `
+  <div class="card"><h2>ファイルを選ぶ</h2><div class="body">
+    <p class="hint" style="margin-top:0">BカートのCSV／Excelをそのまま読み込めます。文字コードはUTF-8とShift_JISを自動判別します。
+      同一の注文番号＋商品IDは重複として取り込みません。</p>
+    <input type="file" accept=".csv,.tsv,.txt,.xlsx,.xls" onchange="pickFile(this)">
+    ${IMP.fileName?`<p style="margin:10px 0 0"><b>${esc(IMP.fileName)}</b>　${IMP.rows.length}行を読み込みました</p>`:''}
+    <p class="hint" style="margin-bottom:0"><button class="link" onclick="downloadTemplate()">テンプレートCSVをダウンロード</button></p>
+  </div></div>
+
+  ${IMP.head.length?`<div class="card"><h2>列の対応づけ</h2><div class="body">
+    <div class="grid g3" style="gap:10px">
+    ${COLDEF.map(([k,label])=>`<label class="f" style="margin:0"><span>${label}</span>
+      <select onchange="IMP.map['${k}']=this.value;render()">
+        <option value="">（使わない）</option>
+        ${IMP.head.map(h=>`<option value="${esc(h)}" ${IMP.map[k]===h?'selected':''}>${esc(h)}</option>`).join('')}
+      </select></label>`).join('')}
+    </div>
+    <div class="bar" style="margin:14px 0 0"><button class="btn" onclick="validateImport()">内容を確認する</button></div>
+  </div></div>
+
+  <div class="card"><h2>先頭5行</h2><div class="body tight"><div class="scroll">
+    <table class="t"><thead><tr>${IMP.head.map(h=>`<th>${esc(h)}</th>`).join('')}</tr></thead>
+    <tbody>${IMP.rows.slice(0,5).map(r=>`<tr>${IMP.head.map(h=>`<td>${esc(r[h])}</td>`).join('')}</tr>`).join('')}</tbody></table>
+  </div></div></div>`:''}
+
+  ${r?`<div class="card"><h2>取込内容の確認</h2><div class="body">
+    <div class="grid g4">
+      <div class="kpi" style="padding:0"><div class="l">取込対象</div><div class="n">${r.ok.length}</div></div>
+      <div class="kpi" style="padding:0"><div class="l">重複（スキップ）</div><div class="n">${r.dup}</div></div>
+      <div class="kpi" style="padding:0"><div class="l">エラー</div><div class="n" style="color:${r.err.length?'var(--warn)':'inherit'}">${r.err.length}</div></div>
+      <div class="kpi" style="padding:0"><div class="l">新規注文</div><div class="n">${r.newOrders}</div></div>
+    </div>
+    ${r.err.length?`<h3 style="font-size:13px;margin:16px 0 6px">エラー一覧（マスタ登録後に再取込できます）</h3>
+      <div class="scroll" style="max-height:260px"><table class="t"><thead><tr><th class="num">行</th><th>内容</th><th>元データ</th></tr></thead><tbody>
+      ${r.err.slice(0,200).map(e=>`<tr><td class="num">${e.line}</td><td>${esc(e.msg)}</td><td class="hint">${esc(e.raw)}</td></tr>`).join('')}
+      </tbody></table></div>
+      ${r.unknownCust.size?`<p style="margin:10px 0 0">未登録の顧客ID：${[...r.unknownCust].slice(0,20).map(esc).join('、')}
+        <button class="btn sm ghost" onclick="createMissingCustomers()">この顧客を仮登録する</button></p>`:''}
+      ${r.unknownSku.size?`<p style="margin:6px 0 0">未登録のSKU：${[...r.unknownSku].slice(0,20).map(esc).join('、')}
+        <button class="btn sm ghost" onclick="createMissingProducts()">この商品を仮登録する</button></p>`:''}`:''}
+    <div class="bar" style="margin:16px 0 0">
+      <button class="btn" onclick="commitImport()" ${r.ok.length?'':'disabled'}>${r.ok.length}件を取り込む</button>
+      <span class="hint">取込後、当月のAI候補を自動で再生成します。</span></div>
+  </div></div>`:''}
+
+  <div class="card"><h2>取込済みデータ</h2><div class="body">
+    <div class="grid g4">
+      <div class="kpi" style="padding:0"><div class="l">注文</div><div class="n">${num(S.t.orders.length)}</div></div>
+      <div class="kpi" style="padding:0"><div class="l">明細</div><div class="n">${num(S.t.order_items.length)}</div></div>
+      <div class="kpi" style="padding:0"><div class="l">顧客</div><div class="n">${num(S.t.customers.length)}</div></div>
+      <div class="kpi" style="padding:0"><div class="l">商品</div><div class="n">${num(S.t.products.length)}</div></div>
+    </div>
+    <p class="hint" style="margin-bottom:0">対象期間：${S.t.orders.length?`${S.t.orders[0].order_date} 〜 ${S.t.orders[S.t.orders.length-1].order_date}`:'—'}</p>
+  </div></div>`;
+};
+
+/* CSV パーサ（RFC4180準拠 + 区切り自動判定 + Shift_JIS対応） */
+function parseCSV(text){
+  const delim = (text.split('\n')[0].match(/\t/g)||[]).length > (text.split('\n')[0].match(/,/g)||[]).length ? '\t' : ',';
+  const rows=[]; let row=[], cell='', q=false;
+  for(let i=0;i<text.length;i++){
+    const ch=text[i];
+    if(q){
+      if(ch==='"'){ if(text[i+1]==='"'){cell+='"';i++;} else q=false; }
+      else cell+=ch;
+    }else{
+      if(ch==='"') q=true;
+      else if(ch===delim){ row.push(cell); cell=''; }
+      else if(ch==='\n'){ row.push(cell); rows.push(row); row=[]; cell=''; }
+      else if(ch!=='\r') cell+=ch;
+    }
+  }
+  if(cell!==''||row.length){ row.push(cell); rows.push(row); }
+  const head = (rows.shift()||[]).map(h=>h.trim().replace(/^\ufeff/,''));
+  return {head, rows: rows.filter(r=>r.some(c=>String(c).trim()!=='')).map(r=>Object.fromEntries(head.map((h,i)=>[h,(r[i]??'').trim()])))};
+}
+function decodeBuf(buf){
+  let t = new TextDecoder('utf-8').decode(buf);
+  if(t.includes('\ufffd')){ try{ t = new TextDecoder('shift_jis').decode(buf); }catch(e){} }
+  return t;
+}
+async function pickFile(input){
+  const f = input.files[0]; if(!f) return;
+  IMP.fileName=f.name; IMP.result=null;
+  if(/\.xlsx?$/i.test(f.name)){
+    try{
+      if(!window.XLSX) await loadScript('https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js');
+      const wb = XLSX.read(await f.arrayBuffer(),{type:'array'});
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const arr = XLSX.utils.sheet_to_json(ws,{header:1,raw:false,defval:''});
+      IMP.head = arr[0].map(h=>String(h).trim());
+      IMP.rows = arr.slice(1).filter(r=>r.some(c=>String(c).trim()!==''))
+        .map(r=>Object.fromEntries(IMP.head.map((h,i)=>[h,String(r[i]??'').trim()])));
+    }catch(e){ toast('Excelの読み込みに失敗しました。CSVで保存し直してください。',5000); return; }
+  }else{
+    const {head,rows} = parseCSV(decodeBuf(await f.arrayBuffer()));
+    IMP.head=head; IMP.rows=rows;
+  }
+  // 列の自動対応づけ
+  IMP.map={};
+  for(const [k,,cands] of COLDEF){
+    const norm = h => h.toLowerCase().replace(/[ 　]/g,'');
+    const hit = IMP.head.find(h=>cands.some(c=>norm(h)===c))
+             || IMP.head.find(h=>cands.some(c=>norm(h).includes(c)));
+    if(hit) IMP.map[k]=hit;
+  }
+  render();
+}
+function downloadTemplate(){
+  const csv='注文日,顧客ID,施設名,商品ID,商品名,数量,単価,売上金額,注文番号\n'+
+    '2026-08-20,10001,○○クリニック,JSH-001,Jalupro Super Hydro,30,9800,294000,BC12345\n';
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob(['\ufeff'+csv],{type:'text/csv'}));
+  a.download='purchase_template.csv'; a.click();
+}
+
+function normDate(v){
+  if(!v) return null;
+  v=String(v).trim();
+  let m=v.match(/^(\d{4})[-\/年.](\d{1,2})[-\/月.](\d{1,2})/);
+  if(m) return `${m[1]}-${String(m[2]).padStart(2,'0')}-${String(m[3]).padStart(2,'0')}`;
+  m=v.match(/^(\d{4})(\d{2})(\d{2})$/);
+  if(m) return `${m[1]}-${m[2]}-${m[3]}`;
+  const d=new Date(v);
+  return isNaN(d)?null:d2s(d);
+}
+const toNum = v => { const n=Number(String(v??'').replace(/[,¥\s円]/g,'')); return isNaN(n)?null:n; };
+
+function validateImport(){
+  const M=IMP.map;
+  const need=['order_date','customer_id','sku','qty'];
+  const miss=need.filter(k=>!M[k]);
+  if(miss.length){ toast('必要な列が未設定です：'+miss.map(k=>COLDEF.find(c=>c[0]===k)[1]).join('、')); return; }
+  const custByMember = new Map(S.t.customers.map(c=>[String(c.member_id),c]));
+  const prodBySku = new Map(S.t.products.map(p=>[String(p.sku).toUpperCase(),p]));
+  const existing = new Set(S.t.order_items.map(it=>{
+    const o=byId(S.t.orders,it.order_id); return (o?.order_no||'')+'|'+it.product_id;
+  }));
+  const ok=[],err=[]; let dup=0;
+  const unknownCust=new Set(), unknownSku=new Set();
+  const seen=new Set();
+  IMP.rows.forEach((r,i)=>{
+    const line=i+2;
+    const raw=[M.order_date,M.customer_id,M.sku,M.qty].map(k=>r[k]).join(' / ');
+    const date=normDate(r[M.order_date]);
+    const mid=String(r[M.customer_id]||'').trim();
+    const sku=String(r[M.sku]||'').trim().toUpperCase();
+    const qty=toNum(r[M.qty]);
+    if(!date){ err.push({line,msg:'注文日を解釈できません',raw}); return; }
+    const cu=custByMember.get(mid);
+    if(!cu){ unknownCust.add(mid); err.push({line,msg:`未登録の顧客ID：${mid}`,raw}); return; }
+    const p=prodBySku.get(sku);
+    if(!p){ unknownSku.add(sku); err.push({line,msg:`未登録のSKU：${sku}`,raw}); return; }
+    if(qty==null||qty<=0){ err.push({line,msg:'数量が不正です',raw}); return; }
+    const ono = M.order_no ? String(r[M.order_no]||'').trim() : `IMP-${date}-${mid}`;
+    const key = ono+'|'+p.id;
+    if(existing.has(key)||seen.has(key)){ dup++; return; }
+    seen.add(key);
+    const unit = M.unit_price? toNum(r[M.unit_price]) : null;
+    const amt  = M.amount? toNum(r[M.amount]) : null;
+    const unit2 = unit ?? (amt&&qty? Math.round(amt/qty) : p.list_price);
+    ok.push({order_no:ono, order_date:date, customer_id:cu.id, product_id:p.id, qty,
+      unit_price:unit2, amount: amt ?? unit2*qty});
+  });
+  IMP.result={ok,err,dup,unknownCust,unknownSku,newOrders:new Set(ok.map(o=>o.order_no)).size};
+  render();
+}
+async function createMissingCustomers(){
+  const M=IMP.map;
+  const news=new Map();
+  IMP.rows.forEach(r=>{
+    const mid=String(r[M.customer_id]||'').trim();
+    if(!mid||S.t.customers.some(c=>String(c.member_id)===mid)) return;
+    news.set(mid, M.customer_name? String(r[M.customer_name]||'').trim() : '（名称未設定）');
+  });
+  for(const [mid,name] of news){
+    await DB.insert('customers',{id:uid(),member_id:mid,name:name||'（名称未設定）',
+      sales_owner_id:S.t.users.find(u=>u.role==='sales')?.id||null,pref:'',rank:'C',
+      active_flag:true,offerable:true,note:'取込時に自動作成'});
+  }
+  toast(`${news.size}件の顧客を仮登録しました。担当営業とランクを設定してください。`,4000);
+  validateImport();
+}
+async function createMissingProducts(){
+  const M=IMP.map;
+  const news=new Map();
+  IMP.rows.forEach(r=>{
+    const sku=String(r[M.sku]||'').trim().toUpperCase();
+    if(!sku||S.t.products.some(p=>String(p.sku).toUpperCase()===sku)) return;
+    const price = M.unit_price? toNum(r[M.unit_price]) : null;
+    news.set(sku,{name: M.product_name? String(r[M.product_name]||'').trim():sku, price});
+  });
+  for(const [sku,v] of news){
+    await DB.insert('products',{id:uid(),sku,name:v.name||sku,category:'未分類',
+      list_price:v.price||0,floor_price:null,cost:null,lead_time:'',group_code:'',active_flag:true});
+  }
+  toast(`${news.size}件の商品を仮登録しました。価格と原価を設定してください。`,4000);
+  validateImport();
+}
+async function commitImport(){
+  const r=IMP.result; if(!r||!r.ok.length) return;
+  const byOno=groupBy(r.ok,x=>x.order_no+'|'+x.customer_id);
+  const orders=[],items=[];
+  for(const [key,arr] of byOno){
+    const [ono]=key.split('|');
+    let o = S.t.orders.find(x=>x.order_no===ono);
+    if(!o){
+      o={id:uid(),order_no:ono,customer_id:arr[0].customer_id,order_date:arr[0].order_date,
+        total_amount:sum(arr.map(x=>x.amount))};
+      orders.push(o);
+    }
+    arr.forEach(x=>items.push({id:uid(),order_id:o.id,product_id:x.product_id,qty:x.qty,
+      unit_price:x.unit_price,amount:x.amount}));
+  }
+  if(orders.length) await DB.insert('orders',orders);
+  if(items.length)  await DB.insert('order_items',items);
+  await audit('import','orders',IMP.fileName,null,{orders:orders.length,items:items.length});
+  toast(`${items.length}明細を取り込みました。候補を再生成します…`,3000);
+  IMP.result=null; IMP.rows=[]; IMP.head=[]; IMP.fileName='';
+  const n=await generateCandidates();
+  toast(`取込完了。${n}件の提案候補を生成しました。`,4000);
+  go('candidates');
+}
+
+/* ============================ §11 レポート ========================== */
+VIEWS.reports = function(){
+  const targets=S.t.offer_targets;
+  const dl=id=>S.t.offer_deliveries.find(d=>d.offer_target_id===id);
+  const rs=id=>S.t.offer_results.find(r=>r.offer_target_id===id);
+  const sent=targets.filter(t=>dl(t.id));
+  const results=sent.map(t=>rs(t.id)).filter(Boolean);
+  const won=results.filter(r=>['won','partial'].includes(r.result_code));
+  const cands=S.t.ai_candidates;
+  const adopted=cands.filter(c=>['adopted','created'].includes(c.status));
+  const wr=pastWinRates();
+
+  const kpi=[
+    ['提案候補数', num(cands.length), `AI ${cands.length}件 / 定例 ${S.t.offer_plans.filter(p=>p.type==='routine').length}プラン / 個別 ${S.t.offer_plans.filter(p=>p.type==='individual').length}プラン`],
+    ['提案実施率', adopted.length?pct(sent.length/adopted.length,0):'—', `送付 ${sent.length} ÷ 採用 ${adopted.length}`],
+    ['受注率', sent.length?pct(won.length/sent.length,0):'—', `受注 ${won.length} ÷ 送付 ${sent.length}`],
+    ['提案売上', yen(sum(sent.map(targetAmount))), '送付済みの提案金額合計'],
+    ['受注売上', yen(sum(won.map(r=>r.amount||0))), '結果登録済みの受注金額'],
+    ['復活率', (()=>{ const dormant=targets.filter(t=>['R01','R06'].includes(t.rule_code)&&dl(t.id));
+        const w=dormant.filter(t=>['won','partial'].includes(rs(t.id)?.result_code));
+        return dormant.length?pct(w.length/dormant.length,0):'—'; })(), '休眠/停止顧客の再受注率']
+  ];
+
+  const ruleRows=Object.keys(RULES).map(k=>{
+    const raw=wr.raw.byRule[k]||{w:0,n:0};
+    const cand=cands.filter(c=>c.rule_code===k).length;
+    return {k,cand,n:raw.n,w:raw.w};
+  });
+  const prodRows=S.t.products.map(p=>{
+    const raw=wr.raw.byProd[p.id]||{w:0,n:0};
+    const cand=cands.filter(c=>c.product_id===p.id).length;
+    return {p,cand,n:raw.n,w:raw.w};
+  }).filter(r=>r.cand||r.n);
+
+  return `<div class="grid g3">
+    ${kpi.map(([l,v,d])=>`<div class="card"><div class="kpi"><div class="l">${l}</div><div class="n">${v}</div><div class="d">${d}</div></div></div>`).join('')}
+  </div>
+  <div class="grid g2">
+    <div class="card"><h2>判定ルール別</h2><div class="body tight"><div class="scroll">
+      <table class="t"><thead><tr><th>ルール</th><th class="num">候補数</th><th class="num">送付</th><th class="num">受注</th><th class="num">受注率</th></tr></thead><tbody>
+      ${ruleRows.map(r=>`<tr><td><span class="tag">${r.k}</span> ${RULES[r.k].name}</td>
+        <td class="num">${r.cand}</td><td class="num">${r.n}</td><td class="num">${r.w}</td>
+        <td class="num">${r.n?pct(r.w/r.n,0):'—'}</td></tr>`).join('')}
+      </tbody></table></div>
+      <p class="hint" style="padding:10px 14px;margin:0">受注率はスコアの「反応実績」に反映され、翌月の候補順位に効きます。</p>
+    </div></div>
+    <div class="card"><h2>商品別</h2><div class="body tight"><div class="scroll">
+      <table class="t"><thead><tr><th>商品</th><th class="num">候補数</th><th class="num">送付</th><th class="num">受注</th><th class="num">受注率</th></tr></thead><tbody>
+      ${prodRows.map(r=>`<tr><td>${esc(r.p.name)}</td><td class="num">${r.cand}</td><td class="num">${r.n}</td>
+        <td class="num">${r.w}</td><td class="num">${r.n?pct(r.w/r.n,0):'—'}</td></tr>`).join('')
+        ||'<tr><td class="hint" style="padding:14px">データがありません</td></tr>'}
+      </tbody></table></div></div></div>
+  </div>
+  <div class="card"><h2>失注理由</h2><div class="body tight"><div class="scroll">
+    <table class="t"><thead><tr><th>理由</th><th class="num">件数</th></tr></thead><tbody>
+    ${Object.entries(REASONS).map(([k,v])=>{
+      const n=S.t.offer_results.filter(r=>(r.reason_codes||[]).includes(k)).length;
+      return n?`<tr><td>${v}</td><td class="num">${n}</td></tr>`:'';
+    }).join('')||'<tr><td class="hint" style="padding:14px">結果が登録されると集計されます</td></tr>'}
+    </tbody></table></div></div></div>`;
+};
+
+/* ============================ 設定 ================================== */
+const SETDEF=[
+  ['r01_dormant_days','購入停止と見なす日数','R01。この日数以上購入がなければ停止と判定',,'日'],
+  ['r01_min_orders','購入停止の最低購入回数','R01。過去6ヶ月の購入回数',,'回'],
+  ['r02_interval_mult','頻度低下の倍率','R02。平均購入間隔の何倍で検知するか',,'倍'],
+  ['r03_qty_ratio','数量減少の比率','R03。直近2回平均が過去6ヶ月平均のこの比率未満',,''],
+  ['r04_amount_ratio','売上減少の比率','R04。直近2ヶ月が過去6ヶ月平均のこの比率未満',,''],
+  ['r05_dormant_days','商品単位離反の日数','R05',,'日'],
+  ['r06_dormant_days','休眠と見なす日数','R06',,'日'],
+  ['r07_single_days','単発後停止の日数','R07',,'日'],
+  ['r08_window_days','次回購入予測の許容幅','R08。予測日の前後',,'日'],
+  ['r09_streak','数量アップの連続回数','R09',,'回'],
+  ['r10_min_orders','クロスセル判定の購入回数','R10。主商品の過去6ヶ月購入回数',,'回'],
+  ['score_s','優先度Sの閾値','これ以上でS',,'点'],
+  ['score_a','優先度Aの閾値','これ以上でA',,'点'],
+  ['score_b','優先度Bの閾値','これ未満は候補に出さない',,'点'],
+  ['min_margin_rate','最低粗利率','下回ると警告し承認必須。0.20＝20%',,''],
+  ['remind_days','送付後リマインド日数','結果未登録を強調表示するまでの日数',,'日'],
+  ['resuggest_block_days','同一商品の再提案抑制','この日数以内に提案済みなら候補から除外',,'日'],
+  ['stopped_block_days','使用中止による抑制','「使用中止」で失注した商品を除外する日数',,'日'],
+  ['max_per_customer','顧客あたり標準表示件数','候補一覧で折りたたまずに見せる件数',,'件']
+];
+VIEWS.settings = function(){
+  if(!CAN.settings()) return `<div class="empty"><b>設定権限がありません</b>管理者でログインしてください。</div>`;
+  return `
+  <div class="card"><h2>判定パラメータ<span class="r"><button class="btn sm ghost" onclick="resetSettings()">初期値に戻す</button>
+    <button class="btn sm" onclick="saveSettings()">保存する</button></span></h2><div class="body">
+    <div class="grid g3" style="gap:10px">
+    ${SETDEF.map(([k,l,h,,u])=>`<label class="f" style="margin:0"><span>${l}${u?`（${u}）`:''}</span>
+      <input type="number" step="any" id="st_${k}" value="${S.settings[k]}"><small class="hint">${h}</small></label>`).join('')}
+    </div>
+  </div></div>
+
+  <div class="card"><h2>提案対象外の設定<span class="r"><button class="btn sm ghost" onclick="addBlock()">追加</button></span></h2>
+    <div class="body tight"><div class="scroll">
+    ${S.t.offer_blocks.length?`<table class="t"><thead><tr><th>顧客</th><th>商品</th><th>理由</th><th>期限</th><th></th></tr></thead><tbody>
+    ${S.t.offer_blocks.map(b=>`<tr><td>${esc(custName(b.customer_id))}</td><td>${esc(prodName(b.product_id))}</td>
+      <td>${esc(b.reason||'')}</td><td class="w">${b.until||'無期限'}</td>
+      <td><button class="btn sm danger" onclick="delBlock('${b.id}')">解除</button></td></tr>`).join('')}
+    </tbody></table>`:`<div class="empty">「今後この商品は提案しない」を登録するとここに並びます。</div>`}
+    </div></div></div>
+
+  <div class="card"><h2>利用者</h2><div class="body tight"><div class="scroll">
+    <table class="t"><thead><tr><th>名前</th><th>権限</th><th>所属</th><th class="num">担当顧客</th></tr></thead><tbody>
+    ${S.t.users.map(u=>`<tr><td>${esc(u.name)}</td><td>${roleName(u.role)}</td><td>${esc(u.title||'')}</td>
+      <td class="num">${S.t.customers.filter(c=>c.sales_owner_id===u.id).length}</td></tr>`).join('')}
+    </tbody></table></div>
+    <p class="hint" style="padding:10px 14px;margin:0">Supabase接続時は Supabase Auth と RLS で認証・権限を制御します。デモモードでは利用者を切り替えて挙動を確認できます。</p>
+  </div></div>
+
+  <div class="card"><h2>接続</h2><div class="body">
+    <dl class="dl"><dt>モード</dt><dd>${DB.mode==='demo'?'デモ（保存されません）':'Supabase'}</dd>
+      <dt>AI文章生成</dt><dd>${CONFIG.aiEndpoint?'外部エンドポイント':'ローカル生成（根拠数値つき）'}</dd></dl>
+    <p class="hint" style="margin-bottom:0">HTMLファイル冒頭の CONFIG に Supabase の URL と anon key を設定すると本番モードになります。</p>
+  </div></div>`;
+};
+async function saveSettings(){
+  const before={...S.settings};
+  SETDEF.forEach(([k])=>{ const v=+$('#st_'+k).value; if(!isNaN(v)) S.settings[k]=v; });
+  await DB.saveSettings();
+  await audit('update','app_settings','global',before,S.settings);
+  toast('設定を保存しました。候補を再生成すると反映されます。',3500); render();
+}
+async function resetSettings(){ S.settings={...DEFAULT_SETTINGS}; await DB.saveSettings(); toast('初期値に戻しました'); render(); }
+function addBlock(){
+  openModal('提案対象外を追加',`
+    <label class="f"><span>顧客</span><select id="bk_c">${S.t.customers.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('')}</select></label>
+    <label class="f"><span>商品</span><select id="bk_p">${S.t.products.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></label>
+    <label class="f"><span>理由</span><input type="text" id="bk_r" placeholder="使用中止 など"></label>
+    <label class="f"><span>期限（空欄で無期限）</span><input type="date" id="bk_u"></label>`,
+    `<button class="btn ghost" onclick="closeModal()">キャンセル</button><button class="btn" onclick="doAddBlock()">追加する</button>`);
+}
+async function doAddBlock(){
+  await DB.insert('offer_blocks',{id:uid(),customer_id:$('#bk_c').value,product_id:$('#bk_p').value,
+    reason:$('#bk_r').value.trim(),until:$('#bk_u').value||null});
+  closeModal(); toast('登録しました'); render();
+}
+async function delBlock(id){ await DB.remove('offer_blocks',id); toast('解除しました'); render(); }
+
+/* ============================ 監査ログ ============================== */
+VIEWS.audit = function(){
+  const logs=[...S.t.audit_logs].sort((a,b)=>a.created_at<b.created_at?1:-1).slice(0,300);
+  const A={create:'作成',update:'更新',submit:'承認申請',approved:'承認',rejected:'却下',sent_back:'差戻し',
+    send:'送付登録',result:'結果登録',import:'実績取込',generate:'候補生成',skip:'見送り'};
+  return `<div class="card"><div class="body tight"><div class="scroll">
+  ${logs.length?`<table class="t sticky-h"><thead><tr><th>日時</th><th>利用者</th><th>操作</th><th>対象</th><th>変更内容</th></tr></thead><tbody>
+  ${logs.map(l=>`<tr><td class="w">${(l.created_at||'').replace('T',' ').slice(0,16)}</td>
+    <td class="w">${esc(l.user_name||userName(l.user_id))}</td><td class="w">${A[l.action]||l.action}</td>
+    <td class="w">${esc(l.entity_type)}</td>
+    <td class="hint" style="max-width:520px;word-break:break-all">${esc((l.after_json||'').slice(0,200))}</td></tr>`).join('')}
+  </tbody></table>`:'<div class="empty">操作ログはまだありません</div>'}
+  </div></div></div>`;
+};
+
+/* ============================ 起動 ================================== */
+function logout(){ S.me=null; $('#app').style.display='none'; showLogin(); }
+function showLogin(){
+  $('#login').style.display='flex';
+  $('#loginUser').innerHTML = S.t.users.map(u=>`<option value="${u.id}">${esc(u.name)}（${roleName(u.role)}）</option>`).join('');
+  $('#loginMode').innerHTML = DB.mode==='demo'
+    ? '<span class="tag warn">デモモード</span> サンプルデータで動作します。保存はされません。'
+    : 'Supabaseに接続しています。';
+}
+$('#loginBtn').onclick = ()=>{
+  S.me = byId(S.t.users, $('#loginUser').value);
+  $('#login').style.display='none';
+  $('#app').style.display='flex';
+  if(!location.hash) location.hash='#/dashboard';
+  render();
+};
+
+(async function boot(){
+  try{
+    await DB.init();
+    await DB.loadAll();
+    rebuildStats();
+    const ym=d2s(TODAY).slice(0,7);
+    if(!S.t.ai_candidates.some(c=>c.ym===ym)){
+      S.me = S.t.users.find(u=>u.role==='admin') || S.t.users[0];
+      await generateCandidates();
+      S.me = null;
+    }
+    showLogin();
+  }catch(e){
+    console.error(e);
+    document.body.innerHTML='<div style="padding:40px;font-family:sans-serif">起動に失敗しました：'+esc(e.message)+'</div>';
+  }
+})();
+</script>
+</body>
+</html>
