@@ -248,11 +248,15 @@ const DEFAULT_SETTINGS = {
   r09_streak: 3,            // 数量アップ判定の連続回数
   r10_min_orders: 3,        // クロスセル判定の主商品購入回数
   score_s: 80, score_a: 60, score_b: 40,
-  min_margin_rate: 0.20,    // 最低粗利率（下回ると承認必須）
+  min_margin_rate: 0.20,    // 最低粗利率（下回ると警告）
   remind_days: 7,           // 送付後リマインド日数
   resuggest_block_days: 30, // 同一商品の再提案抑制
   stopped_block_days: 180,  // 「使用中止」失注後の抑制
-  max_per_customer: 3       // 顧客あたり標準表示件数
+  max_per_customer: 3,      // 顧客あたり標準表示件数
+  import_line_types:['商品'],// 取り込む明細区分
+  exclude_status:[],        // 取り込まない対応状況
+  exclude_negative:true,    // マイナス金額の行を取り込まない
+  owner_map:{}              // 営業担当コード → 利用者ID
 };
 
 /* ---- 3. ユーティリティ ------------------------------------------------ */
@@ -285,7 +289,7 @@ document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeModal(); });
 
 /* ---- 4. 状態 ---------------------------------------------------------- */
 const TABLES = ['users','customers','products','orders','order_items','offer_plans',
-  'offer_plan_items','offer_targets','ai_candidates','approvals','offer_deliveries',
+  'offer_plan_items','offer_targets','ai_candidates','offer_deliveries',
   'offer_results','offer_blocks','audit_logs','app_settings'];
 
 const S = {
@@ -379,7 +383,6 @@ async function audit(action, entity_type, entity_id, before, after){
 /* 権限（§3） */
 const CAN = {
   master: ()=> ['admin'].includes(S.me.role),
-  approve:()=> ['admin','approver'].includes(S.me.role),
   edit:   ()=> ['admin','sales'].includes(S.me.role),
   import: ()=> ['admin'].includes(S.me.role),
   settings:()=>['admin'].includes(S.me.role)
@@ -403,7 +406,6 @@ function seedDemo(){
 
   S.t.users = [
     {id:'u-admin', name:'坂口 孝太', role:'admin',    title:'代表取締役'},
-    {id:'u-appr',  name:'承認 担当',  role:'approver', title:'管理部'},
     {id:'u-s1',    name:'上郷 佑介',  role:'sales',    title:'営業部'},
     {id:'u-s2',    name:'田中 営業',  role:'sales',    title:'営業部'},
     {id:'u-view',  name:'閲覧 ユーザー',role:'viewer', title:'—'}
@@ -543,7 +545,7 @@ function seedDemo(){
     const planId=uid();
     S.t.offer_plans.push({
       id:planId, type:'routine', title:`${addMonths(TODAY,-1).getFullYear()}年${addMonths(TODAY,-1).getMonth()+1}月 ${p.name} 特別提案`,
-      start_date:d2s(addMonths(TODAY,-1)), end_date:d2s(addDays(TODAY,-3)), status:'approved',
+      start_date:d2s(addMonths(TODAY,-1)), end_date:d2s(addDays(TODAY,-3)), status:'confirmed',
       created_by:'u-s1', memo:'先月分', comment_text:'', created_at:new Date().toISOString()
     });
     S.t.offer_plan_items.push({id:uid(), offer_plan_id:planId, product_id:p.id, qty_from:30, qty_to:49, list_price:p.list_price, offer_price:Math.round(p.list_price*0.9)});
@@ -839,13 +841,13 @@ function mergeAndSuppress(cands){
   const blocked = (cid,pid)=>{
     if(S.t.offer_blocks.some(b=>b.customer_id===cid && b.product_id===pid && (!b.until || days(s2d(b.until),TODAY)>=0)))
       return '手動で提案対象外';
-    // 有効期間中の承認済/送付済提案
+    // 有効期間中の確定済/送付済提案
     for(const t of S.t.offer_targets){
       if(t.customer_id!==cid) continue;
       const plan = byId(S.t.offer_plans,t.offer_plan_id); if(!plan) continue;
       const has = S.t.offer_plan_items.some(i=>i.offer_plan_id===plan.id && i.product_id===pid);
       if(!has) continue;
-      if(['approved','pending'].includes(plan.status) && plan.end_date && days(s2d(plan.end_date),TODAY)>=0) return '有効な提案が進行中';
+      if(plan.status==='confirmed' && plan.end_date && days(s2d(plan.end_date),TODAY)>=0) return '有効な提案が進行中';
       const d = S.t.offer_deliveries.find(x=>x.offer_target_id===t.id);
       if(d && days(TODAY,d.sent_at) < P.resuggest_block_days) return `${P.resuggest_block_days}日以内に提案済`;
       const r = S.t.offer_results.find(x=>x.offer_target_id===t.id);
@@ -939,8 +941,9 @@ function genTexts(x){
   };
 }
 function unitOf(p){
-  if(/Thread|スレッド/i.test(p.category)) return '本';
-  if(/カートリッジ|消耗品/.test(p.category)) return '個';
+  if(p && p.unit) return p.unit;                       // 実績CSVの単位を優先
+  if(/Thread|スレッド/i.test(p?.category||'')) return '本';
+  if(/カートリッジ|消耗品/.test(p?.category||'')) return '個';
   return '箱';
 }
 
@@ -1013,7 +1016,6 @@ const NAV = [
   {k:'dashboard', t:'ダッシュボード'},
   {k:'candidates',t:'AI提案候補',  badge:()=>countCand()},
   {k:'plans',     t:'提案プラン',  badge:()=>S.t.offer_plans.filter(p=>p.status==='draft').length},
-  {k:'approvals', t:'承認',        badge:()=>S.t.offer_plans.filter(p=>p.status==='pending').length},
   {k:'delivery',  t:'送付・結果',  badge:()=>countTodo()},
   {g:'データ'},
   {k:'customers', t:'顧客'},
@@ -1025,7 +1027,7 @@ const NAV = [
   {k:'audit',     t:'監査ログ'}
 ];
 const TITLES = {dashboard:'ダッシュボード',candidates:'AI提案候補',plans:'提案プラン',
-  planEdit:'プラン作成 / 編集',approvals:'承認',delivery:'送付・結果管理',customers:'顧客',
+  planEdit:'プラン作成 / 編集',delivery:'送付・結果管理',customers:'顧客',
   customer:'顧客詳細',products:'商品マスタ',import:'購入実績取込',reports:'レポート / KPI',
   settings:'設定',audit:'監査ログ',proposal:'提案書'};
 
@@ -1033,7 +1035,7 @@ function countCand(){ const ym=d2s(TODAY).slice(0,7); return S.t.ai_candidates.f
 function countTodo(){
   return S.t.offer_targets.filter(t=>{
     const plan=byId(S.t.offer_plans,t.offer_plan_id);
-    if(!plan||plan.status!=='approved') return false;
+    if(!plan||plan.status!=='confirmed') return false;
     const d=S.t.offer_deliveries.find(x=>x.offer_target_id===t.id);
     const r=S.t.offer_results.find(x=>x.offer_target_id===t.id);
     return !d || !r;
@@ -1058,7 +1060,7 @@ function renderNav(){
   $('#me').innerHTML = `<b>${esc(S.me.name)}</b>${roleName(S.me.role)}<br>
     <button onclick="logout()">利用者を切り替える</button>`;
 }
-const roleName = r => ({admin:'管理者',sales:'営業',approver:'承認者',viewer:'閲覧者'}[r]||r);
+const roleName = r => ({admin:'管理者',sales:'営業',viewer:'閲覧者'}[r]||r);
 
 function render(){
   S.route = parseHash();
@@ -1091,7 +1093,7 @@ function priChip(p){ return `<span class="pri ${p}">${p}</span>`; }
 function custName(id){ return byId(S.t.customers,id)?.name || '—'; }
 function prodName(id){ return byId(S.t.products,id)?.name || '—'; }
 function userName(id){ return byId(S.t.users,id)?.name || '—'; }
-const STATUS_JA = {draft:'下書き',pending:'承認待ち',rejected:'差戻し',approved:'承認済み',expired:'期限切れ',
+const STATUS_JA = {draft:'下書き',confirmed:'確定済み',expired:'期限切れ',
   new:'未確認',adopted:'採用',skipped:'見送り',created:'作成済み',
   unsent:'未送付',sent:'送付済み',replied:'返信あり',
   won:'受注',partial:'一部受注',pass:'見送り',no_reply:'返信なし',lost:'失注'};
@@ -1104,29 +1106,29 @@ VIEWS.dashboard = function(){
   const cands = S.t.ai_candidates.filter(c=>c.status==='new'&&visibleCand(c));
   const cnt = p => cands.filter(c=>c.priority===p).length;
   const plans = S.t.offer_plans;
-  const pending = plans.filter(p=>p.status==='pending').length;
+  const drafts = plans.filter(p=>p.status==='draft').length;
   const targets = S.t.offer_targets.filter(t=>{const c=byId(S.t.customers,t.customer_id);return mine(c);});
-  const unsent = targets.filter(t=>byId(S.t.offer_plans,t.offer_plan_id)?.status==='approved' && !S.t.offer_deliveries.some(d=>d.offer_target_id===t.id)).length;
+  const unsent = targets.filter(t=>byId(S.t.offer_plans,t.offer_plan_id)?.status==='confirmed' && !S.t.offer_deliveries.some(d=>d.offer_target_id===t.id)).length;
   const waiting = targets.filter(t=>S.t.offer_deliveries.some(d=>d.offer_target_id===t.id) && !S.t.offer_results.some(r=>r.offer_target_id===t.id)).length;
   const results = S.t.offer_results.filter(r=>targets.some(t=>t.id===r.offer_target_id));
   const won = results.filter(r=>['won','partial'].includes(r.result_code));
   const sentN = targets.filter(t=>S.t.offer_deliveries.some(d=>d.offer_target_id===t.id)).length;
   const expect = sum(targets.map(t=>targetAmount(t)));
   const gotten = sum(won.map(r=>r.amount||0));
-  const expired = plans.filter(p=>p.status==='approved'&&p.end_date&&days(TODAY,p.end_date)>0);
+  const expired = plans.filter(p=>p.status==='confirmed'&&p.end_date&&days(TODAY,p.end_date)>0);
   const soon = targets.filter(t=>{
     const p=byId(S.t.offer_plans,t.offer_plan_id);
-    return p&&p.status==='approved'&&p.end_date&&days(s2d(p.end_date),TODAY)<=3&&days(s2d(p.end_date),TODAY)>=0
+    return p&&p.status==='confirmed'&&p.end_date&&days(s2d(p.end_date),TODAY)<=3&&days(s2d(p.end_date),TODAY)>=0
       && !S.t.offer_deliveries.some(d=>d.offer_target_id===t.id);
   });
 
   return `
   ${soon.length?`<div class="alert">期限3日以内で未送付の提案が ${soon.length} 件あります。<button class="link" onclick="go('delivery')">送付管理を開く</button></div>`:''}
-  ${expired.length?`<div class="alert">有効期限を過ぎた承認済みプランが ${expired.length} 件あります。<button class="link" onclick="expirePlans()">期限切れにする</button></div>`:''}
+  ${expired.length?`<div class="alert">有効期限を過ぎた確定済みプランが ${expired.length} 件あります。<button class="link" onclick="expirePlans()">期限切れにする</button></div>`:''}
   <div class="grid g4">
     <div class="card"><div class="kpi"><div class="l">今月の提案候補</div><div class="n">${cands.length}</div>
       <div class="d">${priChip('S')} ${cnt('S')}　${priChip('A')} ${cnt('A')}　${priChip('B')} ${cnt('B')}</div></div></div>
-    <div class="card"><div class="kpi"><div class="l">承認待ち</div><div class="n">${pending}</div><div class="d">未送付 ${unsent} 件</div></div></div>
+    <div class="card"><div class="kpi"><div class="l">下書き</div><div class="n">${drafts}</div><div class="d">確定済みで未送付 ${unsent} 件</div></div></div>
     <div class="card"><div class="kpi"><div class="l">返信待ち</div><div class="n">${waiting}</div><div class="d">結果未登録</div></div></div>
     <div class="card"><div class="kpi"><div class="l">受注率</div><div class="n">${sentN?pct(won.length/sentN,0):'—'}</div><div class="d">送付 ${sentN} 件 / 受注 ${won.length} 件</div></div></div>
   </div>
@@ -1136,7 +1138,7 @@ VIEWS.dashboard = function(){
         <div class="kpi" style="padding:0"><div class="l">提案売上見込</div><div class="n">${yen(expect)}</div></div>
         <div class="kpi" style="padding:0"><div class="l">受注売上</div><div class="n">${yen(gotten)}</div></div>
       </div>
-      <p class="hint" style="margin:12px 0 0">見込は承認済み・送付済み提案の提案金額合計。受注は結果登録済みの金額。</p>
+      <p class="hint" style="margin:12px 0 0">見込は確定済み・送付済み提案の提案金額合計。受注は結果登録済みの金額。</p>
     </div></div>
     <div class="card"><h2>次にやること</h2><div class="body">
       <div class="bar">
@@ -1159,7 +1161,7 @@ function targetAmount(t){
   return (i.offer_price||0) * (t.qty || i.qty_from || 0);
 }
 async function expirePlans(){
-  const list = S.t.offer_plans.filter(p=>p.status==='approved'&&p.end_date&&days(TODAY,p.end_date)>0);
+  const list = S.t.offer_plans.filter(p=>p.status==='confirmed'&&p.end_date&&days(TODAY,p.end_date)>0);
   for(const p of list) await DB.update('offer_plans',p.id,{status:'expired'});
   toast(`${list.length}件を期限切れにしました`); render();
 }
@@ -1447,11 +1449,12 @@ async function saveCustomer(id){
 VIEWS.products = function(){
   return `<div class="bar">${CAN.master()?`<button class="btn" onclick="editProduct()">商品を追加</button>`:''}</div>
   <div class="card"><div class="body tight"><div class="scroll">
-  <table class="t sticky-h"><thead><tr><th>SKU</th><th>商品名</th><th>カテゴリ</th><th class="num">通常価格</th>
+  <table class="t sticky-h"><thead><tr><th>管理番号</th><th>商品名</th><th>カテゴリ</th><th>単位</th><th class="num">通常価格</th>
     <th class="num">最低提案価格</th><th class="num">原価</th><th class="num">粗利率</th><th>納期</th><th>グループ</th><th>提案可否</th><th></th></tr></thead><tbody>
   ${S.t.products.map(p=>`<tr>
-    <td class="w">${esc(p.sku)}</td><td>${esc(p.name)}</td><td class="w">${esc(p.category)}</td>
-    <td class="num">${yen(p.list_price)}</td><td class="num">${yen(p.floor_price)}</td><td class="num">${yen(p.cost)}</td>
+    <td class="w">${esc(p.sku||'—')}</td><td>${esc(p.name)}</td><td class="w">${esc(p.category)}</td><td class="w">${esc(p.unit||'—')}</td>
+    <td class="num">${p.list_price?yen(p.list_price):'<span class="tag warn">未設定</span>'}</td>
+    <td class="num">${yen(p.floor_price)}</td><td class="num">${p.cost?yen(p.cost):'<span class="tag warn">未設定</span>'}</td>
     <td class="num">${p.cost&&p.list_price?pct((p.list_price-p.cost)/p.list_price,0):'—'}</td>
     <td class="w">${esc(p.lead_time||'—')}</td><td class="w">${esc(p.group_code||'—')}</td>
     <td>${p.active_flag?'<span class="tag on">可</span>':'<span class="tag warn">停止</span>'}</td>
@@ -1459,25 +1462,28 @@ VIEWS.products = function(){
   </tbody></table></div></div></div>`;
 };
 function editProduct(id){
-  const p = id?byId(S.t.products,id):{sku:'',name:'',category:'',list_price:'',floor_price:'',cost:'',lead_time:'',group_code:'',active_flag:true};
+  const p = id?byId(S.t.products,id):{sku:'',name:'',category:'',unit:'',list_price:'',floor_price:'',cost:'',lead_time:'',group_code:'',active_flag:true};
   openModal(id?'商品を編集':'商品を追加',`
     <div class="grid g2">
-      <label class="f"><span>SKU</span><input type="text" id="ep_sku" value="${esc(p.sku)}"></label>
+      <label class="f"><span>商品管理番号</span><input type="text" id="ep_sku" value="${esc(p.sku||'')}"></label>
       <label class="f"><span>商品名</span><input type="text" id="ep_name" value="${esc(p.name)}"></label>
       <label class="f"><span>カテゴリ</span><input type="text" id="ep_cat" value="${esc(p.category)}"></label>
+      <label class="f"><span>単位</span><input type="text" id="ep_unit" value="${esc(p.unit||'')}" placeholder="箱 / セット / 本"></label>
       <label class="f"><span>関連商品グループ</span><input type="text" id="ep_grp" value="${esc(p.group_code||'')}" placeholder="booster / filler など"></label>
-      <label class="f"><span>通常価格</span><input type="number" id="ep_list" value="${p.list_price}"></label>
-      <label class="f"><span>最低提案価格</span><input type="number" id="ep_floor" value="${p.floor_price}"></label>
-      <label class="f"><span>原価</span><input type="number" id="ep_cost" value="${p.cost}"></label>
+      <label class="f"><span>通常価格</span><input type="number" id="ep_list" value="${p.list_price??''}"></label>
+      <label class="f"><span>最低提案価格</span><input type="number" id="ep_floor" value="${p.floor_price??''}"></label>
+      <label class="f"><span>原価</span><input type="number" id="ep_cost" value="${p.cost??''}"></label>
       <label class="f"><span>標準リードタイム</span><input type="text" id="ep_lead" value="${esc(p.lead_time||'')}"></label>
       <label class="f"><span>提案可否</span><select id="ep_act"><option value="1" ${p.active_flag?'selected':''}>提案可</option><option value="0" ${!p.active_flag?'selected':''}>販売停止</option></select></label>
     </div>`,
     `<button class="btn ghost" onclick="closeModal()">キャンセル</button><button class="btn" onclick="saveProduct(${id?`'${id}'`:'null'})">保存する</button>`);
 }
 async function saveProduct(id){
+  const n = el => $(el).value.trim()===''?null:(+$(el).value||null);
   const v={sku:$('#ep_sku').value.trim(),name:$('#ep_name').value.trim(),category:$('#ep_cat').value.trim(),
-    group_code:$('#ep_grp').value.trim(),list_price:+$('#ep_list').value||0,floor_price:+$('#ep_floor').value||0,
-    cost:+$('#ep_cost').value||0,lead_time:$('#ep_lead').value.trim(),active_flag:$('#ep_act').value==='1'};
+    unit:$('#ep_unit').value.trim(), group_code:$('#ep_grp').value.trim(),
+    list_price:n('#ep_list'), floor_price:n('#ep_floor'), cost:n('#ep_cost'),
+    lead_time:$('#ep_lead').value.trim(),active_flag:$('#ep_act').value==='1'};
   if(!v.name){ toast('商品名を入力してください'); return; }
   if(id){ const before={...byId(S.t.products,id)}; await DB.update('products',id,v); await audit('update','products',id,before,v); }
   else  { const r=await DB.insert('products',{id:uid(),...v}); await audit('create','products',r.id,null,v); }
@@ -1507,14 +1513,15 @@ VIEWS.plans = function(){
     const items=S.t.offer_plan_items.filter(i=>i.offer_plan_id===p.id);
     const tg=S.t.offer_targets.filter(t=>t.offer_plan_id===p.id);
     const pn=[...new Set(items.map(i=>prodName(i.product_id)))].join(' / ');
-    const expired = p.status==='approved'&&p.end_date&&days(TODAY,p.end_date)>0;
+    const expired = p.status==='confirmed'&&p.end_date&&days(TODAY,p.end_date)>0;
     return `<tr><td class="w"><span class="tag">${PLAN_TYPE[p.type]}</span></td>
       <td><button class="link" onclick="go('planEdit',{id:'${p.id}'})">${esc(p.title)}</button></td>
       <td>${esc(pn||'—')}</td><td class="num">${tg.length}</td>
       <td class="w">${p.start_date||'—'} 〜 ${p.end_date||'—'}${expired?' <span class="tag warn">期限超過</span>':''}</td>
-      <td class="w"><span class="tag ${p.status==='approved'?'on':p.status==='rejected'?'warn':''}">${STATUS_JA[p.status]}</span></td>
+      <td class="w"><span class="tag ${p.status==='confirmed'?'on':''}">${STATUS_JA[p.status]||p.status}</span></td>
       <td class="w">${esc(userName(p.created_by))}</td>
-      <td class="w"><button class="btn sm ghost" onclick="go('planEdit',{id:'${p.id}'})">開く</button></td></tr>`;
+      <td class="w"><button class="btn sm ghost" onclick="go('planEdit',{id:'${p.id}'})">開く</button>
+        ${CAN.edit()?`<button class="btn sm danger" onclick="deletePlan('${p.id}')">削除</button>`:''}</td></tr>`;
   }).join('')}</tbody></table>`
   :`<div class="empty"><b>プランがありません</b>AI候補から作成するか、定例プランを新規作成してください。</div>`}
   </div></div></div>`;
@@ -1540,8 +1547,9 @@ async function addPlanItemRows(planId, p, baseQty){
   const q = baseQty || 30;
   const tiers = [[q, Math.round(q*1.6)-1, 0.92],[Math.round(q*1.6), Math.round(q*3)-1, 0.88],[Math.round(q*3), null, 0.84]];
   for(const [from,to,rate] of tiers){
-    let price = Math.round(p.list_price*rate/100)*100;
-    if(p.floor_price) price = Math.max(price, p.floor_price);
+    // 通常価格が未登録なら特別価格は空欄のまま作る（あとで手入力）
+    let price = p.list_price ? Math.round(p.list_price*rate/100)*100 : null;
+    if(price && p.floor_price) price = Math.max(price, p.floor_price);
     await DB.insert('offer_plan_items',{id:uid(), offer_plan_id:planId, product_id:p.id,
       qty_from:from, qty_to:to, list_price:p.list_price, offer_price:price});
   }
@@ -1594,23 +1602,24 @@ VIEWS.planEdit = function(){
   if(!plan) return `<div class="empty"><b>プランが見つかりません</b><button class="link" onclick="go('plans')">一覧へ戻る</button></div>`;
   const items = S.t.offer_plan_items.filter(i=>i.offer_plan_id===plan.id);
   const targets = S.t.offer_targets.filter(t=>t.offer_plan_id===plan.id);
-  const ro = !(CAN.edit()&&['draft','rejected'].includes(plan.status));
+  const ro = !(CAN.edit()&&plan.status==='draft');
   const warns = marginWarnings(items);
-  const appr = S.t.approvals.filter(a=>a.offer_plan_id===plan.id).sort((a,b)=>a.approved_at<b.approved_at?1:-1);
 
   return `
   <div class="bar"><button class="btn sm ghost" onclick="go('plans')">← プラン一覧</button>
     <span class="tag">${PLAN_TYPE[plan.type]}</span>
-    <span class="tag ${plan.status==='approved'?'on':plan.status==='rejected'?'warn':''}">${STATUS_JA[plan.status]}</span>
+    <span class="tag ${plan.status==='confirmed'?'on':''}">${STATUS_JA[plan.status]||plan.status}</span>
     <div class="sp"></div>
     ${targets.length===1?`<button class="btn ghost" onclick="go('proposal',{id:'${targets[0].id}'})">提案書を見る</button>`:''}
     ${!ro?`<button class="btn ghost" onclick="savePlan('${plan.id}')">下書きを保存</button>
-      <button class="btn" onclick="submitPlan('${plan.id}')">承認申請する</button>`:''}
-    ${plan.status==='approved'?`<button class="btn" onclick="go('delivery')">送付管理へ</button>`:''}
+      <button class="btn" onclick="confirmPlan('${plan.id}')">確定する</button>`:''}
+    ${plan.status==='confirmed'?`<button class="btn ghost" onclick="reopenPlan('${plan.id}')">下書きに戻して編集</button>
+      <button class="btn" onclick="go('delivery')">送付管理へ</button>`:''}
+    ${CAN.edit()?`<button class="btn danger" onclick="deletePlan('${plan.id}')">プランを削除</button>`:''}
   </div>
 
-  ${plan.status==='rejected'&&appr[0]?`<div class="alert">差戻し：${esc(appr[0].comment||'コメントなし')}（${esc(userName(appr[0].approver_id))}）</div>`:''}
-  ${warns.length?`<div class="alert">${warns.map(esc).join('<br>')}<br>この条件で申請する場合は承認が必須です。</div>`:''}
+  ${warns.length?`<div class="alert">${warns.map(esc).join('<br>')}</div>`:''}
+  ${plan.status==='confirmed'?`<div class="alert ok">確定済みです。編集するには「下書きに戻して編集」を押してください。送付済みの提案書の内容も変わるのでご注意ください。</div>`:''}
 
   <div class="grid g2">
     <div class="card"><h2>基本情報</h2><div class="body">
@@ -1643,7 +1652,7 @@ VIEWS.planEdit = function(){
         <td class="num"><input type="number" style="width:80px" value="${i.qty_to||''}" ${ro?'disabled':''} onchange="setItem('${i.id}','qty_to',this.value)" placeholder="以上"></td>
         <td class="num">${yen(i.list_price)}</td>
         <td class="num"><input type="number" style="width:100px" value="${i.offer_price||''}" ${ro?'disabled':''} onchange="setItem('${i.id}','offer_price',this.value)"></td>
-        <td class="num">${i.list_price?pct(1-i.offer_price/i.list_price,1):'—'}</td>
+        <td class="num">${i.list_price&&i.offer_price?pct(1-i.offer_price/i.list_price,1):'—'}</td>
         <td class="num">${yen(p.cost)}</td>
         <td class="num ${bad?'':''}">${mr!=null?`<span class="${bad?'tag warn':''}">${pct(mr,1)}</span>`:'—'}</td>
         <td>${ro?'':`<button class="btn sm danger" onclick="delItem('${i.id}')">削除</button>`}</td></tr>`;
@@ -1669,10 +1678,7 @@ VIEWS.planEdit = function(){
     }).join('')}</tbody></table>`:`<div class="empty"><b>対象顧客が未設定です</b>${ro?'':'「顧客を選ぶ」から対象を追加してください。'}</div>`}
     </div></div></div>
 
-  ${appr.length?`<div class="card"><h2>承認履歴</h2><div class="body tight"><table class="t"><tbody>
-    ${appr.map(a=>`<tr><td class="w">${a.approved_at?.slice(0,10)||''}</td><td class="w">${esc(userName(a.approver_id))}</td>
-      <td class="w">${STATUS_JA[a.status]||a.status}</td><td>${esc(a.comment||'')}</td></tr>`).join('')}
-  </tbody></table></div></div>`:''}`;
+`;
 };
 
 function candOf(t){ return t?.ai_candidate_id ? byId(S.t.ai_candidates,t.ai_candidate_id) : null; }
@@ -1804,7 +1810,7 @@ async function savePlan(id, silent){
   await audit('update','offer_plans',id,before,patch);
   if(!silent){ toast('下書きを保存しました'); render(); }
 }
-async function submitPlan(id){
+async function confirmPlan(id){
   await savePlan(id,true);
   const plan=byId(S.t.offer_plans,id);
   const items=S.t.offer_plan_items.filter(i=>i.offer_plan_id===id);
@@ -1812,84 +1818,38 @@ async function submitPlan(id){
   if(!items.length){ toast('対象商品と数量条件を登録してください'); return; }
   if(!targets.length){ toast('対象顧客を登録してください'); return; }
   if(!plan.end_date){ toast('有効期限を入力してください'); return; }
-  await DB.update('offer_plans',id,{status:'pending'});
-  await DB.insert('approvals',{id:uid(),offer_plan_id:id,approver_id:null,status:'pending',
-    comment:'', requested_by:S.me.id, requested_at:new Date().toISOString(), approved_at:null});
-  await audit('submit','offer_plans',id,{status:plan.status},{status:'pending'});
-  toast('承認申請しました');
-  go('approvals');
+  const warns=marginWarnings(items);
+  if(warns.length && !confirm(warns.join('\n')+'\n\nこの条件で確定しますか？')) return;
+  await DB.update('offer_plans',id,{status:'confirmed'});
+  await audit('confirm','offer_plans',id,{status:plan.status},{status:'confirmed'});
+  toast('確定しました。送付管理から提案書を送付できます。',3000);
+  render();
 }
-
-/* --- §8.5 承認 --- */
-VIEWS.approvals = function(){
-  const pend = S.t.offer_plans.filter(p=>p.status==='pending');
-  const done = S.t.approvals.filter(a=>a.status!=='pending').sort((a,b)=>a.approved_at<b.approved_at?1:-1).slice(0,20);
-  if(!CAN.approve()) return `<div class="empty"><b>承認権限がありません</b>承認者または管理者でログインしてください。</div>`;
-  return `<div class="card"><h2>承認待ち ${pend.length} 件</h2><div class="body tight"><div class="scroll">
-  ${pend.length?`<table class="t"><thead><tr><th>種別</th><th>プラン名</th><th>商品 / 条件</th><th class="num">対象</th><th>期限</th><th>申請者</th><th></th></tr></thead><tbody>
-  ${pend.map(p=>{
-    const items=S.t.offer_plan_items.filter(i=>i.offer_plan_id===p.id);
-    const w=marginWarnings(items);
-    return `<tr><td class="w"><span class="tag">${PLAN_TYPE[p.type]}</span></td>
-      <td>${esc(p.title)}${w.length?'<div><span class="tag warn">粗利基準割れ</span></div>':''}</td>
-      <td style="font-size:12.5px">${items.map(i=>`${esc(prodName(i.product_id))} ${num(i.qty_from)}${i.qty_to?'〜'+num(i.qty_to):'以上'} → ${yen(i.offer_price)}`).join('<br>')}</td>
-      <td class="num">${S.t.offer_targets.filter(t=>t.offer_plan_id===p.id).length}</td>
-      <td class="w">${p.end_date||'—'}</td><td class="w">${esc(userName(p.created_by))}</td>
-      <td class="w"><button class="btn sm" onclick="approveModal('${p.id}')">確認する</button></td></tr>`;
-  }).join('')}</tbody></table>`:`<div class="empty"><b>承認待ちはありません</b>申請されたプランがここに並びます。</div>`}
-  </div></div></div>
-  <div class="card"><h2>最近の承認履歴</h2><div class="body tight"><div class="scroll">
-  <table class="t"><tbody>${done.map(a=>{
-    const p=byId(S.t.offer_plans,a.offer_plan_id);
-    return `<tr><td class="w">${a.approved_at?.slice(0,10)||''}</td><td>${esc(p?.title||'—')}</td>
-      <td class="w"><span class="tag ${a.status==='approved'?'on':'warn'}">${STATUS_JA[a.status]||a.status}</span></td>
-      <td class="w">${esc(userName(a.approver_id))}</td><td>${esc(a.comment||'')}</td></tr>`;
-  }).join('')||'<tr><td class="hint" style="padding:14px">履歴はありません</td></tr>'}</tbody></table>
-  </div></div></div>`;
-};
-
-function approveModal(planId){
-  const p=byId(S.t.offer_plans,planId);
-  const items=S.t.offer_plan_items.filter(i=>i.offer_plan_id===planId);
-  const targets=S.t.offer_targets.filter(t=>t.offer_plan_id===planId);
-  const w=marginWarnings(items);
-  openModal(p.title,`
-    ${w.length?`<div class="alert">${w.map(esc).join('<br>')}</div>`:''}
-    <table class="t"><thead><tr><th>商品</th><th class="num">数量</th><th class="num">通常価格</th><th class="num">特別価格</th>
-      <th class="num">値引率</th><th class="num">原価</th><th class="num">粗利率</th><th class="num">粗利額/単位</th></tr></thead><tbody>
-    ${items.map(i=>{
-      const pr=byId(S.t.products,i.product_id)||{};
-      const mr=i.offer_price&&pr.cost?(i.offer_price-pr.cost)/i.offer_price:null;
-      return `<tr><td>${esc(pr.name)}</td><td class="num">${num(i.qty_from)}${i.qty_to?'〜'+num(i.qty_to):'以上'}</td>
-        <td class="num">${yen(i.list_price)}</td><td class="num"><b>${yen(i.offer_price)}</b></td>
-        <td class="num">${pct(1-i.offer_price/i.list_price,1)}</td><td class="num">${yen(pr.cost)}</td>
-        <td class="num">${mr!=null?`<span class="${mr<S.settings.min_margin_rate?'tag warn':''}">${pct(mr,1)}</span>`:'—'}</td>
-        <td class="num">${yen((i.offer_price||0)-(pr.cost||0))}</td></tr>`;
-    }).join('')}</tbody></table>
-    <dl class="dl" style="margin:12px 0">
-      <dt>有効期間</dt><dd>${p.start_date||'—'} 〜 ${p.end_date||'—'}</dd>
-      <dt>対象顧客</dt><dd>${targets.length}件（${targets.slice(0,4).map(t=>esc(custName(t.customer_id))).join('、')}${targets.length>4?' ほか':''}）</dd>
-      <dt>提案金額合計</dt><dd>${yen(sum(targets.map(targetAmount)))}</dd>
-      <dt>社内メモ</dt><dd style="white-space:pre-wrap">${esc(p.memo||'—')}</dd>
-    </dl>
-    <label class="f"><span>コメント（差戻し・却下の場合は必須）</span><textarea id="ap_c"></textarea></label>`,
-    `<button class="btn danger" onclick="decide('${planId}','rejected')">却下</button>
-     <button class="btn ghost" onclick="decide('${planId}','sent_back')">差戻し</button>
-     <button class="btn" onclick="decide('${planId}','approved')">承認する</button>`);
+async function reopenPlan(id){
+  await DB.update('offer_plans',id,{status:'draft'});
+  await audit('reopen','offer_plans',id,{status:'confirmed'},{status:'draft'});
+  toast('下書きに戻しました'); render();
 }
-async function decide(planId,kind){
-  const c=$('#ap_c').value.trim();
-  if(kind!=='approved'&&!c){ toast('コメントを入力してください'); return; }
-  const status = kind==='approved'?'approved':'rejected';
-  const before={...byId(S.t.offer_plans,planId)};
-  await DB.update('offer_plans',planId,{status});
-  const a = S.t.approvals.find(x=>x.offer_plan_id===planId&&x.status==='pending');
-  const patch={approver_id:S.me.id,status:kind==='approved'?'approved':kind==='rejected'?'rejected':'sent_back',
-    comment:c, approved_at:new Date().toISOString()};
-  if(a) await DB.update('approvals',a.id,patch);
-  else await DB.insert('approvals',{id:uid(),offer_plan_id:planId,...patch});
-  await audit(kind,'offer_plans',planId,before,{status,comment:c});
-  closeModal(); toast(kind==='approved'?'承認しました':'差し戻しました'); render();
+async function deletePlan(id){
+  const plan=byId(S.t.offer_plans,id);
+  const targets=S.t.offer_targets.filter(t=>t.offer_plan_id===id);
+  const sent=targets.filter(t=>S.t.offer_deliveries.some(d=>d.offer_target_id===t.id));
+  const msg=`「${plan.title}」を削除します。\n対象顧客 ${targets.length}件と提案書、`
+    +(sent.length?`送付記録 ${sent.length}件と結果も`:'送付・結果の記録も')+`まとめて消えます。\n元に戻せません。よろしいですか？`;
+  if(!confirm(msg)) return;
+  for(const t of targets){
+    for(const d of S.t.offer_deliveries.filter(x=>x.offer_target_id===t.id)) await DB.remove('offer_deliveries',d.id);
+    for(const r of S.t.offer_results.filter(x=>x.offer_target_id===t.id))    await DB.remove('offer_results',r.id);
+    // AI候補は未確認に戻し、翌月以降また拾えるようにする
+    if(t.ai_candidate_id && byId(S.t.ai_candidates,t.ai_candidate_id))
+      await DB.update('ai_candidates',t.ai_candidate_id,{status:'new'});
+    await DB.remove('offer_targets',t.id);
+  }
+  for(const i of S.t.offer_plan_items.filter(x=>x.offer_plan_id===id)) await DB.remove('offer_plan_items',i.id);
+  await DB.remove('offer_plans',id);
+  await audit('delete','offer_plans',id,{title:plan.title,targets:targets.length},null);
+  toast('プランを削除しました');
+  go('plans');
 }
 
 /* --- §8.6 提案書 --- */
@@ -1915,16 +1875,17 @@ VIEWS.proposal = function(){
     </div>
     <div class="to">${esc(cu.name)} 御中</div>
     <div class="lead">${esc(body)}</div>
-    <table class="p"><thead><tr><th>商品名</th><th>ご提案数量</th><th>通常価格</th><th>特別価格</th><th>ご提案金額</th></tr></thead><tbody>
+    ${(()=>{ const showList = items.some(i=>i.list_price);
+      return `<table class="p"><thead><tr><th>商品名</th><th>ご提案数量</th>${showList?'<th>通常価格</th>':''}<th>特別価格</th><th>ご提案金額</th></tr></thead><tbody>
     ${items.map(i=>{
       const p=byId(S.t.products,i.product_id)||{};
       const q=i.qty_from||0;
       return `<tr><td>${esc(p.name)}</td>
         <td>${num(i.qty_from)}${i.qty_to?`〜${num(i.qty_to)}`:'以上'}${unitOf(p)}</td>
-        <td style="text-align:right">${yen(i.list_price)}</td>
+        ${showList?`<td style="text-align:right">${yen(i.list_price)}</td>`:''}
         <td style="text-align:right"><b>${yen(i.offer_price)}</b></td>
-        <td style="text-align:right">${yen(i.offer_price*q)}〜</td></tr>`;
-    }).join('')}</tbody></table>
+        <td style="text-align:right">${i.offer_price?yen(i.offer_price*q)+'〜':'—'}</td></tr>`;
+    }).join('')}</tbody></table>`; })()}
     <table class="p"><tbody>
       <tr><th style="width:130px">有効期限</th><td>${plan.end_date?jdate(plan.end_date):'—'}</td></tr>
       <tr><th>納期目安</th><td>${esc(plan.lead_time||lead||'ご発注後にご案内いたします')}</td></tr>
@@ -1942,7 +1903,7 @@ function copyMailText(tid){
   const items=S.t.offer_plan_items.filter(i=>i.offer_plan_id===plan.id);
   const lines=[`${cu.name} 御中`,'',plan.comment_text||genCustomerComment(plan,items,cu,candOf(t)),'','【ご提案条件】',
     ...items.map(i=>{const p=byId(S.t.products,i.product_id);
-      return `・${p.name}　${num(i.qty_from)}${i.qty_to?'〜'+num(i.qty_to):'以上'}${unitOf(p)}　${yen(i.offer_price)}（通常 ${yen(i.list_price)}）`;}),
+      return `・${p.name}　${num(i.qty_from)}${i.qty_to?'〜'+num(i.qty_to):'以上'}${unitOf(p)}　${yen(i.offer_price)}${i.list_price?`（通常 ${yen(i.list_price)}）`:''}`;}),
     '',`有効期限：${plan.end_date?jdate(plan.end_date):'—'}`,`納期目安：${plan.lead_time||'ご発注後にご案内いたします'}`,'',
     `${CONFIG.company.name} ${CONFIG.company.dept}　${userName(cu.sales_owner_id)}`,
     `TEL ${CONFIG.company.tel} / ${CONFIG.company.email}`];
@@ -1959,7 +1920,7 @@ VIEWS.delivery = function(){
     const r=S.t.offer_results.find(x=>x.offer_target_id===t.id);
     return {t,plan,cu,d,r};
   }).filter(x=>x.plan&&x.cu&&mine(x.cu))
-    .filter(x=>['approved','expired'].includes(x.plan.status))
+    .filter(x=>['confirmed','expired'].includes(x.plan.status))
     .filter(x=>DF.mode==='all' ? true : (!x.d||!x.r));
   const late = x => x.d && !x.r && days(TODAY,x.d.sent_at)>=S.settings.remind_days;
 
@@ -1984,7 +1945,7 @@ VIEWS.delivery = function(){
       <td class="num">${x.r?yen(x.r.amount||0):'—'}</td>
       <td class="w"><button class="btn sm ghost" onclick="go('proposal',{id:'${x.t.id}'})">提案書</button>
         ${x.r?`<button class="btn sm ghost" onclick="resultModal('${x.t.id}')">修正</button>`:''}</td></tr>`;
-  }).join('')}</tbody></table>`:`<div class="empty"><b>対象がありません</b>承認済みプランの提案先がここに並びます。</div>`}
+  }).join('')}</tbody></table>`:`<div class="empty"><b>対象がありません</b>確定済みプランの提案先がここに並びます。</div>`}
   </div></div></div>`;
 };
 function sendModal(tid){
@@ -2043,63 +2004,120 @@ async function doResult(tid){
    ========================================================================= */
 const IMP = {rows:[], head:[], map:{}, result:null, fileName:''};
 const COLDEF = [
-  ['order_date','注文日',   ['注文日','受注日','日付','order_date','date']],
-  ['customer_id','顧客ID',  ['顧客id','会員id','得意先コード','customer_id','member_id','顧客コード']],
-  ['customer_name','施設名',['施設名','顧客名','会社名','得意先名','customer_name','name']],
-  ['sku','商品ID/SKU',      ['商品id','sku','商品コード','product_id','品番']],
-  ['product_name','商品名', ['商品名','product_name','品名']],
-  ['qty','数量',            ['数量','個数','qty','quantity','点数']],
-  ['unit_price','単価',     ['単価','unit_price','price']],
-  ['amount','売上金額',     ['売上金額','金額','amount','小計','合計']],
-  ['order_no','注文番号',   ['注文番号','伝票番号','order_no','受注番号','注文no']]
+  ['order_date','注文日',      ['受注日時','注文日','受注日','日付','order_date','date']],
+  ['order_no','注文番号',      ['受注番号','注文番号','伝票番号','order_no','受注no']],
+  ['line_no','受注内連番',     ['受注内連番','明細番号','行番号','line_no']],
+  ['customer_id','顧客ID',     ['bカート会員id','会員id','顧客id','得意先コード','customer_id','member_id']],
+  ['customer_name','施設名',   ['会社名','施設名','顧客名','得意先名','customer_name']],
+  ['pref','都道府県',          ['都道府県','pref']],
+  ['owner_code','営業担当',    ['★営業担当者','営業担当者','担当営業','担当']],
+  ['product_name','商品名',    ['商品名','product_name','品名']],
+  ['sku','商品管理番号',       ['商品管理番号','品番','商品コード','sku','商品id']],
+  ['unit','単位',              ['単位','unit']],
+  ['qty','数量',               ['受注数','数量','個数','qty','quantity']],
+  ['unit_price','単価',        ['単価','unit_price','price']],
+  ['amount','金額',            ['小計','売上金額','金額','amount']],
+  ['line_type','明細区分',     ['明細区分','区分']],
+  ['order_status','対応状況',  ['対応状況','ステータス','status']]
 ];
+const REQUIRED = ['order_date','customer_id','product_name','qty'];
+
+/* 商品名の正規化：全角/半角スペースのゆれだけ吸収する */
+const pkey = s => String(s==null?'':s).replace(/[\s\u3000]+/g,' ').trim();
+/* 顧客キー：会員IDが数値ならそれ、「非会員」等なら会社名で分ける */
+function custKey(mid,name){
+  mid = String(mid==null?'':mid).trim();
+  if(/^\d+$/.test(mid)) return mid;
+  const n = String(name==null?'':name).trim();
+  return (mid?mid:'未設定')+'｜'+n;
+}
 
 VIEWS.import = function(){
   if(!CAN.import()) return `<div class="empty"><b>取込権限がありません</b>管理者でログインしてください。</div>`;
-  const r=IMP.result;
+  const r=IMP.result, M=IMP.map;
+  const vals = col => [...new Set(IMP.rows.map(x=>String(x[col]||'').trim()))].filter(Boolean);
+  const lineTypes = M.line_type ? vals(M.line_type) : [];
+  const statuses  = M.order_status ? vals(M.order_status) : [];
+  const owners    = M.owner_code ? vals(M.owner_code) : [];
+
   return `
   <div class="card"><h2>ファイルを選ぶ</h2><div class="body">
-    <p class="hint" style="margin-top:0">BカートのCSV／Excelをそのまま読み込めます。文字コードはUTF-8とShift_JISを自動判別します。
-      同一の注文番号＋商品IDは重複として取り込みません。</p>
+    <p class="hint" style="margin-top:0">Bカートの受注CSVをそのまま読み込めます。文字コードはUTF-8とShift_JISを自動判別します。
+      同じ受注番号＋受注内連番の行は二重に取り込みません。</p>
     <input type="file" accept=".csv,.tsv,.txt,.xlsx,.xls" onchange="pickFile(this)">
     ${IMP.fileName?`<p style="margin:10px 0 0"><b>${esc(IMP.fileName)}</b>　${IMP.rows.length}行を読み込みました</p>`:''}
     <p class="hint" style="margin-bottom:0"><button class="link" onclick="downloadTemplate()">テンプレートCSVをダウンロード</button></p>
   </div></div>
 
-  ${IMP.head.length?`<div class="card"><h2>列の対応づけ</h2><div class="body">
+  ${IMP.head.length?`
+  <div class="card"><h2>列の対応づけ</h2><div class="body">
     <div class="grid g3" style="gap:10px">
-    ${COLDEF.map(([k,label])=>`<label class="f" style="margin:0"><span>${label}</span>
-      <select onchange="IMP.map['${k}']=this.value;render()">
+    ${COLDEF.map(([k,label])=>`<label class="f" style="margin:0"><span>${label}${REQUIRED.includes(k)?' <span style="color:var(--warn)">*</span>':''}</span>
+      <select onchange="IMP.map['${k}']=this.value;IMP.result=null;render()">
         <option value="">（使わない）</option>
-        ${IMP.head.map(h=>`<option value="${esc(h)}" ${IMP.map[k]===h?'selected':''}>${esc(h)}</option>`).join('')}
+        ${IMP.head.map(h=>`<option value="${esc(h)}" ${M[k]===h?'selected':''}>${esc(h)}</option>`).join('')}
       </select></label>`).join('')}
     </div>
+    <p class="hint" style="margin:10px 0 0">* は必須。商品の識別は商品名で行い、商品管理番号は参考情報として商品マスタに保存します。</p>
+  </div></div>
+
+  <div class="card"><h2>取り込む行を絞る</h2><div class="body">
+    ${lineTypes.length?`<fieldset><legend>明細区分</legend>
+      ${lineTypes.map(v=>`<label style="display:inline-block;margin-right:16px">
+        <input type="checkbox" value="${esc(v)}" ${(S.settings.import_line_types||['商品']).includes(v)?'checked':''}
+          onchange="toggleSetting('import_line_types',this.value,this.checked)"> ${esc(v)}</label>`).join('')}
+      <div class="hint">送料・値引きなどの行はチェックを外してください。</div></fieldset>`:''}
+    ${statuses.length?`<fieldset><legend>取り込まない対応状況</legend>
+      ${statuses.map(v=>`<label style="display:inline-block;margin-right:16px">
+        <input type="checkbox" value="${esc(v)}" ${(S.settings.exclude_status||[]).includes(v)?'checked':''}
+          onchange="toggleSetting('exclude_status',this.value,this.checked)"> ${esc(v)}</label>`).join('')}
+      <div class="hint">キャンセルや返品など、売上として数えない受注にチェックを入れてください。</div></fieldset>`:''}
+    <label style="display:block"><input type="checkbox" ${S.settings.exclude_negative!==false?'checked':''}
+      onchange="S.settings.exclude_negative=this.checked;DB.saveSettings();IMP.result=null;render()">
+      金額がマイナスの行（値引きなど）を取り込まない</label>
+    ${owners.length?`<fieldset style="margin-top:12px"><legend>営業担当コードの対応</legend>
+      <div class="grid g3" style="gap:10px">
+      ${owners.map(code=>`<label class="f" style="margin:0"><span>コード「${esc(code)}」</span>
+        <select onchange="setOwnerMap('${esc(code)}',this.value)">
+          <option value="">（未設定）</option>
+          ${S.t.users.filter(u=>u.role!=='viewer').map(u=>`<option value="${u.id}" ${(S.settings.owner_map||{})[code]===u.id?'selected':''}>${esc(u.name)}</option>`).join('')}
+        </select></label>`).join('')}
+      </div>
+      <div class="hint">顧客を新規登録するときの担当営業に使います。</div></fieldset>`:''}
     <div class="bar" style="margin:14px 0 0"><button class="btn" onclick="validateImport()">内容を確認する</button></div>
   </div></div>
 
   <div class="card"><h2>先頭5行</h2><div class="body tight"><div class="scroll">
     <table class="t"><thead><tr>${IMP.head.map(h=>`<th>${esc(h)}</th>`).join('')}</tr></thead>
-    <tbody>${IMP.rows.slice(0,5).map(r=>`<tr>${IMP.head.map(h=>`<td>${esc(r[h])}</td>`).join('')}</tr>`).join('')}</tbody></table>
+    <tbody>${IMP.rows.slice(0,5).map(x=>`<tr>${IMP.head.map(h=>`<td>${esc(x[h])}</td>`).join('')}</tr>`).join('')}</tbody></table>
   </div></div></div>`:''}
 
   ${r?`<div class="card"><h2>取込内容の確認</h2><div class="body">
     <div class="grid g4">
       <div class="kpi" style="padding:0"><div class="l">取込対象</div><div class="n">${r.ok.length}</div></div>
+      <div class="kpi" style="padding:0"><div class="l">対象外（区分・状況）</div><div class="n">${r.filtered}</div></div>
       <div class="kpi" style="padding:0"><div class="l">重複（スキップ）</div><div class="n">${r.dup}</div></div>
       <div class="kpi" style="padding:0"><div class="l">エラー</div><div class="n" style="color:${r.err.length?'var(--warn)':'inherit'}">${r.err.length}</div></div>
-      <div class="kpi" style="padding:0"><div class="l">新規注文</div><div class="n">${r.newOrders}</div></div>
     </div>
-    ${r.err.length?`<h3 style="font-size:13px;margin:16px 0 6px">エラー一覧（マスタ登録後に再取込できます）</h3>
-      <div class="scroll" style="max-height:260px"><table class="t"><thead><tr><th class="num">行</th><th>内容</th><th>元データ</th></tr></thead><tbody>
+    <p class="hint" style="margin:10px 0 0">新規注文 ${r.newOrders} 件 / 新しく登場した商品 ${r.unknownProd.size} 件 / 新しく登場した顧客 ${r.unknownCust.size} 件</p>
+    ${r.err.length?`<h3 style="font-size:13px;margin:16px 0 6px">エラー一覧</h3>
+      <div class="scroll" style="max-height:240px"><table class="t"><thead><tr><th class="num">行</th><th>内容</th><th>元データ</th></tr></thead><tbody>
       ${r.err.slice(0,200).map(e=>`<tr><td class="num">${e.line}</td><td>${esc(e.msg)}</td><td class="hint">${esc(e.raw)}</td></tr>`).join('')}
+      </tbody></table></div>`:''}
+    ${r.unknownProd.size?`<h3 style="font-size:13px;margin:16px 0 6px">商品マスタに未登録の商品（${r.unknownProd.size}件）</h3>
+      <div class="scroll" style="max-height:200px"><table class="t"><thead><tr><th>商品名</th><th>管理番号</th><th>単位</th><th class="num">実績単価</th></tr></thead><tbody>
+      ${[...r.unknownProd.values()].slice(0,100).map(p=>`<tr><td>${esc(p.name)}</td><td class="w">${esc(p.sku||'—')}</td>
+        <td class="w">${esc(p.unit||'—')}</td><td class="num hint">${p.prices.length?`${yen(Math.min(...p.prices))}〜${yen(Math.max(...p.prices))}`:'—'}</td></tr>`).join('')}
       </tbody></table></div>
-      ${r.unknownCust.size?`<p style="margin:10px 0 0">未登録の顧客ID：${[...r.unknownCust].slice(0,20).map(esc).join('、')}
-        <button class="btn sm ghost" onclick="createMissingCustomers()">この顧客を仮登録する</button></p>`:''}
-      ${r.unknownSku.size?`<p style="margin:6px 0 0">未登録のSKU：${[...r.unknownSku].slice(0,20).map(esc).join('、')}
-        <button class="btn sm ghost" onclick="createMissingProducts()">この商品を仮登録する</button></p>`:''}`:''}
+      <p class="hint">取り込むと商品マスタに自動登録します。<b>通常価格・原価は空欄</b>で作られるので、あとから商品マスタで入力してください。</p>`:''}
+    ${r.unknownCust.size?`<h3 style="font-size:13px;margin:16px 0 6px">顧客マスタに未登録の顧客（${r.unknownCust.size}件）</h3>
+      <div class="scroll" style="max-height:200px"><table class="t"><thead><tr><th>施設名</th><th>顧客ID</th><th>都道府県</th><th>担当営業</th></tr></thead><tbody>
+      ${[...r.unknownCust.values()].slice(0,100).map(c=>`<tr><td>${esc(c.name)}</td><td class="w">${esc(c.member_id)}</td>
+        <td class="w">${esc(c.pref||'—')}</td><td class="w">${c.owner?esc(userName(c.owner)):'<span class="hint">未設定</span>'}</td></tr>`).join('')}
+      </tbody></table></div>`:''}
     <div class="bar" style="margin:16px 0 0">
       <button class="btn" onclick="commitImport()" ${r.ok.length?'':'disabled'}>${r.ok.length}件を取り込む</button>
-      <span class="hint">取込後、当月のAI候補を自動で再生成します。</span></div>
+      <span class="hint">未登録の商品・顧客もあわせて登録し、当月のAI候補を再生成します。</span></div>
   </div></div>`:''}
 
   <div class="card"><h2>取込済みデータ</h2><div class="body">
@@ -2109,13 +2127,25 @@ VIEWS.import = function(){
       <div class="kpi" style="padding:0"><div class="l">顧客</div><div class="n">${num(S.t.customers.length)}</div></div>
       <div class="kpi" style="padding:0"><div class="l">商品</div><div class="n">${num(S.t.products.length)}</div></div>
     </div>
-    <p class="hint" style="margin-bottom:0">対象期間：${S.t.orders.length?`${S.t.orders[0].order_date} 〜 ${S.t.orders[S.t.orders.length-1].order_date}`:'—'}</p>
+    <p class="hint" style="margin-bottom:0">対象期間：${S.t.orders.length?`${S.t.orders.map(o=>o.order_date).sort()[0]} 〜 ${S.t.orders.map(o=>o.order_date).sort().slice(-1)[0]}`:'—'}</p>
   </div></div>`;
 };
 
+function toggleSetting(key,val,on){
+  const cur = new Set(S.settings[key]||[]);
+  on ? cur.add(val) : cur.delete(val);
+  S.settings[key]=[...cur]; DB.saveSettings(); IMP.result=null; render();
+}
+function setOwnerMap(code,userId){
+  S.settings.owner_map = {...(S.settings.owner_map||{})};
+  if(userId) S.settings.owner_map[code]=userId; else delete S.settings.owner_map[code];
+  DB.saveSettings(); IMP.result=null; render();
+}
+
 /* CSV パーサ（RFC4180準拠 + 区切り自動判定 + Shift_JIS対応） */
 function parseCSV(text){
-  const delim = (text.split('\n')[0].match(/\t/g)||[]).length > (text.split('\n')[0].match(/,/g)||[]).length ? '\t' : ',';
+  const first = text.split('\n')[0];
+  const delim = (first.match(/\t/g)||[]).length > (first.match(/,/g)||[]).length ? '\t' : ',';
   const rows=[]; let row=[], cell='', q=false;
   for(let i=0;i<text.length;i++){
     const ch=text[i];
@@ -2131,7 +2161,8 @@ function parseCSV(text){
   }
   if(cell!==''||row.length){ row.push(cell); rows.push(row); }
   const head = (rows.shift()||[]).map(h=>h.trim().replace(/^\ufeff/,''));
-  return {head, rows: rows.filter(r=>r.some(c=>String(c).trim()!=='')).map(r=>Object.fromEntries(head.map((h,i)=>[h,(r[i]??'').trim()])))};
+  return {head, rows: rows.filter(r=>r.some(c=>String(c).trim()!==''))
+    .map(r=>Object.fromEntries(head.map((h,i)=>[h,(r[i]??'').trim()])))};
 }
 function decodeBuf(buf){
   let t = new TextDecoder('utf-8').decode(buf);
@@ -2155,10 +2186,9 @@ async function pickFile(input){
     const {head,rows} = parseCSV(decodeBuf(await f.arrayBuffer()));
     IMP.head=head; IMP.rows=rows;
   }
-  // 列の自動対応づけ
   IMP.map={};
+  const norm = h => h.toLowerCase().replace(/[ 　]/g,'');
   for(const [k,,cands] of COLDEF){
-    const norm = h => h.toLowerCase().replace(/[ 　]/g,'');
     const hit = IMP.head.find(h=>cands.some(c=>norm(h)===c))
              || IMP.head.find(h=>cands.some(c=>norm(h).includes(c)));
     if(hit) IMP.map[k]=hit;
@@ -2166,11 +2196,11 @@ async function pickFile(input){
   render();
 }
 function downloadTemplate(){
-  const csv='注文日,顧客ID,施設名,商品ID,商品名,数量,単価,売上金額,注文番号\n'+
-    '2026-08-20,10001,○○クリニック,JSH-001,Jalupro Super Hydro,30,9800,294000,BC12345\n';
+  const csv='受注日時,受注番号,受注内連番,Bカート会員ID,会社名,都道府県,★営業担当者,商品管理番号,商品名,単位,受注数,単価,小計,明細区分,対応状況\n'+
+    '2026-08-20 10:00:00,17855724643,1,10192,○○クリニック,大阪府,3,SB004,スネコス Performa 1箱2バイアル,箱,5,17490,87450,商品,新規注文\n';
   const a=document.createElement('a');
   a.href=URL.createObjectURL(new Blob(['\ufeff'+csv],{type:'text/csv'}));
-  a.download='purchase_template.csv'; a.click();
+  a.download='order_template.csv'; a.click();
 }
 
 function normDate(v){
@@ -2187,98 +2217,126 @@ const toNum = v => { const n=Number(String(v??'').replace(/[,¥\s円]/g,'')); re
 
 function validateImport(){
   const M=IMP.map;
-  const need=['order_date','customer_id','sku','qty'];
-  const miss=need.filter(k=>!M[k]);
+  const miss=REQUIRED.filter(k=>!M[k]);
   if(miss.length){ toast('必要な列が未設定です：'+miss.map(k=>COLDEF.find(c=>c[0]===k)[1]).join('、')); return; }
-  const custByMember = new Map(S.t.customers.map(c=>[String(c.member_id),c]));
-  const prodBySku = new Map(S.t.products.map(p=>[String(p.sku).toUpperCase(),p]));
+
+  const custByKey = new Map(S.t.customers.map(c=>[String(c.member_id),c]));
+  const prodByName = new Map(S.t.products.map(p=>[pkey(p.name),p]));
+  const oById = new Map(S.t.orders.map(o=>[o.id,o]));
   const existing = new Set(S.t.order_items.map(it=>{
-    const o=byId(S.t.orders,it.order_id); return (o?.order_no||'')+'|'+it.product_id;
+    const o=oById.get(it.order_id);
+    return (o?.order_no||'')+'#'+(it.line_no??it.product_id);
   }));
-  const ok=[],err=[]; let dup=0;
-  const unknownCust=new Set(), unknownSku=new Set();
+  const lineTypes = S.settings.import_line_types || ['商品'];
+  const exStatus  = S.settings.exclude_status || [];
+  const exNeg     = S.settings.exclude_negative !== false;
+
+  const ok=[], err=[]; let dup=0, filtered=0;
+  const unknownCust=new Map(), unknownProd=new Map();
   const seen=new Set();
+
   IMP.rows.forEach((r,i)=>{
     const line=i+2;
-    const raw=[M.order_date,M.customer_id,M.sku,M.qty].map(k=>r[k]).join(' / ');
+    const name = pkey(r[M.product_name]);
+    const raw  = [r[M.order_date], r[M.customer_id], name, r[M.qty]].join(' / ');
+
+    if(M.line_type){
+      const lt=String(r[M.line_type]||'').trim();
+      if(lt && !lineTypes.includes(lt)){ filtered++; return; }
+    }
+    if(M.order_status && exStatus.includes(String(r[M.order_status]||'').trim())){ filtered++; return; }
+
     const date=normDate(r[M.order_date]);
-    const mid=String(r[M.customer_id]||'').trim();
-    const sku=String(r[M.sku]||'').trim().toUpperCase();
-    const qty=toNum(r[M.qty]);
     if(!date){ err.push({line,msg:'注文日を解釈できません',raw}); return; }
-    const cu=custByMember.get(mid);
-    if(!cu){ unknownCust.add(mid); err.push({line,msg:`未登録の顧客ID：${mid}`,raw}); return; }
-    const p=prodBySku.get(sku);
-    if(!p){ unknownSku.add(sku); err.push({line,msg:`未登録のSKU：${sku}`,raw}); return; }
-    if(qty==null||qty<=0){ err.push({line,msg:'数量が不正です',raw}); return; }
+    if(!name){ err.push({line,msg:'商品名が空です',raw}); return; }
+    const qty=toNum(r[M.qty]);
+    if(qty==null||qty===0){ err.push({line,msg:'数量が不正です',raw}); return; }
+
+    const unit  = M.unit_price ? toNum(r[M.unit_price]) : null;
+    const amtIn = M.amount ? toNum(r[M.amount]) : null;
+    if(exNeg && ((unit!=null&&unit<0) || (amtIn!=null&&amtIn<0) || qty<0)){ filtered++; return; }
+
+    const mid  = custKey(r[M.customer_id], M.customer_name?r[M.customer_name]:'');
+    const cname= M.customer_name ? String(r[M.customer_name]||'').trim() : '';
+    const cu   = custByKey.get(mid);
+    if(!cu && !unknownCust.has(mid)) unknownCust.set(mid,{
+      member_id:mid, name:cname||'（名称未設定）',
+      pref: M.pref?String(r[M.pref]||'').trim():'',
+      owner: (S.settings.owner_map||{})[String(r[M.owner_code]||'').trim()] || null
+    });
+
+    const p = prodByName.get(name);
+    if(!p){
+      const u = unknownProd.get(name) || {name, sku: M.sku?String(r[M.sku]||'').trim():'',
+        unit: M.unit?String(r[M.unit]||'').trim():'', prices:[]};
+      if(!u.sku && M.sku && r[M.sku]) u.sku=String(r[M.sku]).trim();
+      if(unit!=null) u.prices.push(unit);
+      unknownProd.set(name,u);
+    }
+
     const ono = M.order_no ? String(r[M.order_no]||'').trim() : `IMP-${date}-${mid}`;
-    const key = ono+'|'+p.id;
+    const lno = M.line_no ? String(r[M.line_no]||'').trim() : String(i+1);
+    const key = ono+'#'+lno;
     if(existing.has(key)||seen.has(key)){ dup++; return; }
     seen.add(key);
-    const unit = M.unit_price? toNum(r[M.unit_price]) : null;
-    const amt  = M.amount? toNum(r[M.amount]) : null;
-    const unit2 = unit ?? (amt&&qty? Math.round(amt/qty) : p.list_price);
-    ok.push({order_no:ono, order_date:date, customer_id:cu.id, product_id:p.id, qty,
-      unit_price:unit2, amount: amt ?? unit2*qty});
+
+    const unit2 = unit ?? (amtIn&&qty ? Math.round(amtIn/qty) : null);
+    ok.push({order_no:ono, line_no:lno, order_date:date, member_id:mid, customer_name:cname,
+      product_name:name, qty, unit_price:unit2, amount: amtIn ?? (unit2!=null?unit2*qty:null),
+      pref: M.pref?String(r[M.pref]||'').trim():'',
+      owner_code: M.owner_code?String(r[M.owner_code]||'').trim():''});
   });
-  IMP.result={ok,err,dup,unknownCust,unknownSku,newOrders:new Set(ok.map(o=>o.order_no)).size};
+
+  IMP.result={ok, err, dup, filtered, unknownCust, unknownProd,
+    newOrders:new Set(ok.map(o=>o.order_no)).size};
   render();
 }
-async function createMissingCustomers(){
-  const M=IMP.map;
-  const news=new Map();
-  IMP.rows.forEach(r=>{
-    const mid=String(r[M.customer_id]||'').trim();
-    if(!mid||S.t.customers.some(c=>String(c.member_id)===mid)) return;
-    news.set(mid, M.customer_name? String(r[M.customer_name]||'').trim() : '（名称未設定）');
-  });
-  for(const [mid,name] of news){
-    await DB.insert('customers',{id:uid(),member_id:mid,name:name||'（名称未設定）',
-      sales_owner_id:S.t.users.find(u=>u.role==='sales')?.id||null,pref:'',rank:'C',
-      active_flag:true,offerable:true,note:'取込時に自動作成'});
-  }
-  toast(`${news.size}件の顧客を仮登録しました。担当営業とランクを設定してください。`,4000);
-  validateImport();
-}
-async function createMissingProducts(){
-  const M=IMP.map;
-  const news=new Map();
-  IMP.rows.forEach(r=>{
-    const sku=String(r[M.sku]||'').trim().toUpperCase();
-    if(!sku||S.t.products.some(p=>String(p.sku).toUpperCase()===sku)) return;
-    const price = M.unit_price? toNum(r[M.unit_price]) : null;
-    news.set(sku,{name: M.product_name? String(r[M.product_name]||'').trim():sku, price});
-  });
-  for(const [sku,v] of news){
-    await DB.insert('products',{id:uid(),sku,name:v.name||sku,category:'未分類',
-      list_price:v.price||0,floor_price:null,cost:null,lead_time:'',group_code:'',active_flag:true});
-  }
-  toast(`${news.size}件の商品を仮登録しました。価格と原価を設定してください。`,4000);
-  validateImport();
-}
+
 async function commitImport(){
   const r=IMP.result; if(!r||!r.ok.length) return;
-  const byOno=groupBy(r.ok,x=>x.order_no+'|'+x.customer_id);
-  const orders=[],items=[];
-  for(const [key,arr] of byOno){
-    const [ono]=key.split('|');
-    let o = S.t.orders.find(x=>x.order_no===ono);
+
+  // 1. 未登録の顧客・商品を先に作る（価格と原価は空欄のまま）
+  for(const c of r.unknownCust.values()){
+    await DB.insert('customers',{id:uid(), member_id:c.member_id, name:c.name,
+      sales_owner_id:c.owner, pref:c.pref, rank:'', active_flag:true, offerable:true,
+      note:'購入実績の取込時に自動作成'});
+  }
+  for(const p of r.unknownProd.values()){
+    await DB.insert('products',{id:uid(), sku:p.sku||'', mgmt_no:p.sku||'', name:p.name,
+      category:'未分類', unit:p.unit||'', list_price:null, floor_price:null, cost:null,
+      lead_time:'', group_code:'', active_flag:true});
+  }
+
+  const custByKey = new Map(S.t.customers.map(c=>[String(c.member_id),c]));
+  const prodByName = new Map(S.t.products.map(p=>[pkey(p.name),p]));
+
+  // 2. 注文と明細
+  const orders=[], items=[];
+  const orderByNo = new Map(S.t.orders.map(o=>[o.order_no,o]));
+  for(const x of r.ok){
+    const cu=custByKey.get(x.member_id), p=prodByName.get(x.product_name);
+    if(!cu||!p) continue;
+    let o = orderByNo.get(x.order_no);
     if(!o){
-      o={id:uid(),order_no:ono,customer_id:arr[0].customer_id,order_date:arr[0].order_date,
-        total_amount:sum(arr.map(x=>x.amount))};
-      orders.push(o);
+      o={id:uid(), order_no:x.order_no, customer_id:cu.id, order_date:x.order_date, total_amount:0};
+      orders.push(o); orderByNo.set(x.order_no,o);
     }
-    arr.forEach(x=>items.push({id:uid(),order_id:o.id,product_id:x.product_id,qty:x.qty,
-      unit_price:x.unit_price,amount:x.amount}));
+    o.total_amount += (x.amount||0);
+    items.push({id:uid(), order_id:o.id, line_no:x.line_no, product_id:p.id,
+      qty:x.qty, unit_price:x.unit_price, amount:x.amount});
   }
   if(orders.length) await DB.insert('orders',orders);
   if(items.length)  await DB.insert('order_items',items);
-  await audit('import','orders',IMP.fileName,null,{orders:orders.length,items:items.length});
+  await audit('import','orders',IMP.fileName,null,
+    {orders:orders.length, items:items.length, customers:r.unknownCust.size, products:r.unknownProd.size});
+
+  const newProd=r.unknownProd.size;
   toast(`${items.length}明細を取り込みました。候補を再生成します…`,3000);
   IMP.result=null; IMP.rows=[]; IMP.head=[]; IMP.fileName='';
   const n=await generateCandidates();
-  toast(`取込完了。${n}件の提案候補を生成しました。`,4000);
-  go('candidates');
+  if(newProd) toast(`取込完了。候補 ${n}件。新しく登録した ${newProd}件の商品は通常価格・原価が空欄です。`,6000);
+  else toast(`取込完了。${n}件の提案候補を生成しました。`,4000);
+  go(newProd?'products':'candidates');
 }
 
 /* ============================ §11 レポート ========================== */
@@ -2359,7 +2417,7 @@ const SETDEF=[
   ['score_s','優先度Sの閾値','これ以上でS',,'点'],
   ['score_a','優先度Aの閾値','これ以上でA',,'点'],
   ['score_b','優先度Bの閾値','これ未満は候補に出さない',,'点'],
-  ['min_margin_rate','最低粗利率','下回ると警告し承認必須。0.20＝20%',,''],
+  ['min_margin_rate','最低粗利率','下回ると確定時に警告。0.20＝20%',,''],
   ['remind_days','送付後リマインド日数','結果未登録を強調表示するまでの日数',,'日'],
   ['resuggest_block_days','同一商品の再提案抑制','この日数以内に提案済みなら候補から除外',,'日'],
   ['stopped_block_days','使用中止による抑制','「使用中止」で失注した商品を除外する日数',,'日'],
@@ -2425,7 +2483,7 @@ async function delBlock(id){ await DB.remove('offer_blocks',id); toast('解除�
 /* ============================ 監査ログ ============================== */
 VIEWS.audit = function(){
   const logs=[...S.t.audit_logs].sort((a,b)=>a.created_at<b.created_at?1:-1).slice(0,300);
-  const A={create:'作成',update:'更新',submit:'承認申請',approved:'承認',rejected:'却下',sent_back:'差戻し',
+  const A={create:'作成',update:'更新',confirm:'確定',reopen:'下書きに戻す',delete:'削除',
     send:'送付登録',result:'結果登録',import:'実績取込',generate:'候補生成',skip:'見送り'};
   return `<div class="card"><div class="body tight"><div class="scroll">
   ${logs.length?`<table class="t sticky-h"><thead><tr><th>日時</th><th>利用者</th><th>操作</th><th>対象</th><th>変更内容</th></tr></thead><tbody>
