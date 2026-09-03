@@ -189,8 +189,8 @@ svg.chart text{font-size:10px;fill:var(--muted)}
     <h1>単月提案プラン管理</h1>
     <p>リアス株式会社</p>
     <label class="f"><span>利用者</span><select id="loginUser"></select></label>
-    <label class="f"><span>パスワード</span><input type="password" id="loginPw" placeholder="デモは空欄のまま"></label>
-    <button class="btn" style="width:100%" id="loginBtn">ログイン</button>
+    <button class="btn" style="width:100%" id="loginBtn">はじめる</button>
+    <p class="hint" style="margin:10px 0 0">次回からはこの画面を飛ばします。切り替えるときは画面左下から。</p>
     <p style="margin-top:14px" id="loginMode"></p>
   </div>
 </div>
@@ -2202,10 +2202,27 @@ VIEWS.audit = function(){
 };
 
 /* ============================ 起動 ================================== */
-function logout(){ S.me=null; $('#app').style.display='none'; showLogin(); }
+/* 前回の利用者を覚えておく（保存できない環境では毎回選ぶ動作に戻る） */
+const LAST_USER_KEY='lias_offer_last_user';
+function rememberUser(id){ try{ localStorage.setItem(LAST_USER_KEY,id); }catch(e){} }
+function forgetUser(){ try{ localStorage.removeItem(LAST_USER_KEY); }catch(e){} }
+function lastUser(){ try{ return localStorage.getItem(LAST_USER_KEY); }catch(e){ return null; } }
+
+function logout(){
+  forgetUser();
+  S.me=null; $('#app').style.display='none'; showLogin();
+}
+function signIn(user){
+  S.me=user; rememberUser(user.id);
+  $('#login').style.display='none';
+  $('#app').style.display='flex';
+  if(!location.hash) location.hash='#/dashboard';
+  render();
+}
 function showLogin(){
   $('#login').style.display='flex';
-  $('#loginUser').innerHTML = S.t.users.map(u=>`<option value="${u.id}">${esc(u.name)}（${roleName(u.role)}）</option>`).join('');
+  const saved = lastUser();
+  $('#loginUser').innerHTML = S.t.users.map(u=>`<option value="${u.id}" ${saved===u.id?'selected':''}>${esc(u.name)}（${roleName(u.role)}）</option>`).join('');
   $('#loginMode').innerHTML = (DB.mode==='demo'
     ? '<span class="tag warn">デモモード</span> サンプルデータで動作します。保存はされません。'
     : 'Supabaseに接続しています。')
@@ -2214,11 +2231,8 @@ function showLogin(){
          ${DB.loadErrors.slice(0,4).map(esc).join('<br>')}</div>` : '');
 }
 $('#loginBtn').onclick = ()=>{
-  S.me = byId(S.t.users, $('#loginUser').value);
-  $('#login').style.display='none';
-  $('#app').style.display='flex';
-  if(!location.hash) location.hash='#/dashboard';
-  render();
+  const u = byId(S.t.users, $('#loginUser').value);
+  if(u) signIn(u);
 };
 
 (async function boot(){
@@ -2238,6 +2252,9 @@ $('#loginBtn').onclick = ()=>{
     S.t.users=[{id:'u-admin',name:'管理者',role:'admin',title:''}];
     DB.loadErrors.push('利用者が1件も読み込めませんでした。RLSポリシーが未設定の可能性があります（migration_04.sql）。');
   }
+  // 前回の利用者が分かっていればログイン画面を飛ばす
+  const prev = byId(S.t.users, lastUser());
+  if(prev && !DB.loadErrors.length){ signIn(prev); return; }
   showLogin();
 })();
 </script>
