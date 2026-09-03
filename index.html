@@ -236,27 +236,17 @@ const CONFIG = {
 
 /* ---- 2. 既定パラメータ（§23。設定画面から変更可） ---------------------- */
 const DEFAULT_SETTINGS = {
-  r01_dormant_days: 60,     // 購入停止と見なす日数
-  r01_min_orders: 3,        // 過去6ヶ月の最低購入回数
-  r02_interval_mult: 1.5,   // 平均購入間隔の何倍で頻度低下
-  r03_qty_ratio: 0.6,       // 数量減少の閾値
-  r04_amount_ratio: 0.5,    // 売上減少の閾値
-  r05_dormant_days: 60,     // 商品単位離反の判定日数
-  r06_dormant_days: 90,     // 休眠復活の判定日数
-  r07_single_days: 45,      // 単発後停止の判定日数
-  r08_window_days: 14,      // 次回購入予測の許容幅
-  r09_streak: 3,            // 数量アップ判定の連続回数
-  r10_min_orders: 3,        // クロスセル判定の主商品購入回数
-  score_s: 80, score_a: 60, score_b: 40,
-  min_margin_rate: 0.20,    // 最低粗利率（下回ると警告）
+  stop_days: 60,            // 最終注文からこの日数で「止まった」と見なす
+  stop_min_orders: 3,       // 継続していたと見なす最低注文回数
+  single_days: 45,          // 1回だけの注文から何日経ったら拾うか
+  decrease_ratio: 0.6,      // 直近の数量が以前の何割を下回ったら「減った」
+  min_history_days: 180,    // これ未満の実績しかない先は「止まった/減った」を判定しない
+  min_margin_rate: 0.20,    // 最低粗利率（下回ると確定時に警告）
   remind_days: 7,           // 送付後リマインド日数
-  resuggest_block_days: 30, // 同一商品の再提案抑制
-  stopped_block_days: 180,  // 「使用中止」失注後の抑制
-  max_per_customer: 3,      // 顧客あたり標準表示件数
-  import_line_types:['商品'],// 取り込む明細区分
-  exclude_status:[],        // 取り込まない対応状況
-  exclude_negative:true,    // マイナス金額の行を取り込まない
-  owner_map:{}              // 営業担当コード → 利用者ID
+  import_line_types:['商品'],
+  exclude_status:[],
+  exclude_negative:true,
+  owner_map:{}
 };
 
 /* ---- 3. ユーティリティ ------------------------------------------------ */
@@ -289,7 +279,7 @@ document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeModal(); });
 
 /* ---- 4. 状態 ---------------------------------------------------------- */
 const TABLES = ['users','customers','products','orders','order_items','offer_plans',
-  'offer_plan_items','offer_targets','ai_candidates','offer_deliveries',
+  'offer_plan_items','offer_targets','offer_deliveries',
   'offer_results','offer_blocks','audit_logs','app_settings'];
 
 const S = {
@@ -553,7 +543,7 @@ function seedDemo(){
     });
     S.t.offer_plan_items.push({id:uid(), offer_plan_id:planId, product_id:p.id, qty_from:30, qty_to:49, list_price:p.list_price, offer_price:Math.round(p.list_price*0.9)});
     const tid=uid();
-    S.t.offer_targets.push({id:tid, offer_plan_id:planId, customer_id:c.id, ai_candidate_id:null, status:'sent', rule_code:'R01'});
+    S.t.offer_targets.push({id:tid, offer_plan_id:planId, customer_id:c.id, status:'sent'});
     S.t.offer_deliveries.push({id:uid(), offer_target_id:tid, sent_at:d2s(addDays(TODAY,-20)), channel:'mail', sent_by:'u-s1'});
     const res = ['won','partial','lost','no_reply'][i];
     S.t.offer_results.push({id:uid(), offer_target_id:tid, result_code:res,
@@ -580,13 +570,14 @@ function rebuildStats(){
     s.events.push({date:o.order_date, qty:it.qty, amount:it.amount, unit_price:it.unit_price, order_no:o.order_no});
 
     let cs = S.custStats.get(o.customer_id);
-    if(!cs){ cs={months:new Map(), lastDate:null, total:0, total12:0}; S.custStats.set(o.customer_id,cs); }
+    if(!cs){ cs={months:new Map(), lastDate:null, firstDate:null, total:0, total12:0}; S.custStats.set(o.customer_id,cs); }
     const cm = cs.months.get(ym) || {qty:0,amount:0,cnt:0};
     cm.qty+=it.qty; cm.amount+=it.amount; cm.cnt++;
     cs.months.set(ym,cm);
     cs.total += it.amount;
     if(days(o.order_date, addMonths(TODAY,-12))>=0) cs.total12 += it.amount;
     if(!cs.lastDate || o.order_date>cs.lastDate) cs.lastDate=o.order_date;
+    if(!cs.firstDate || o.order_date<cs.firstDate) cs.firstDate=o.order_date;
   }
   for(const s of S.stats.values()) s.events.sort((a,b)=>a.date<b.date?-1:1);
 }
@@ -595,419 +586,164 @@ function lastMonths(n){
   const out=[]; for(let i=n-1;i>=0;i--){ const d=addMonths(TODAY,-i); out.push(d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')); } return out;
 }
 function cpStat(cid,pid){ return S.stats.get(cid+'|'+pid); }
+/* 取込済み実績の期間（日数）。判定に足りるかの判断に使う */
+function dataSpanDays(){
+  if(!S.t.orders.length) return 0;
+  const first = S.t.orders.reduce((a,o)=>o.order_date<a?o.order_date:a, S.t.orders[0].order_date);
+  return days(TODAY, first);
+}
+function custSpanDays(cid){
+  const f = S.custStats.get(cid)?.firstDate;
+  return f ? days(TODAY, f) : 0;
+}
 function custLast(cid){ return S.custStats.get(cid)?.lastDate || null; }
 </script>
 <script>
 /* =========================================================================
-   §7 AI発見型プラン：判定ルール・スコアリング・文章生成
-   数値はすべて確定計算（JS）。AIは文章化のみ（§13）。
+   注文の動き — 購入実績から「気になる先」を機械的に拾う
+   スコアや仮説は作らない。実績の数値だけを並べる。
    ========================================================================= */
 
-const RULES = {
-  R01:{name:'購入停止',     action:'同商品の復活提案'},
-  R02:{name:'購入頻度低下', action:'次回購入タイミング提案'},
-  R03:{name:'購入数量減少', action:'まとめ買い/価格条件提案'},
-  R04:{name:'購入金額低下', action:'減少商品を特定して提案'},
-  R05:{name:'商品単位離反', action:'同商品の仕入シェア奪還'},
-  R06:{name:'休眠復活',     action:'復活限定プラン'},
-  R07:{name:'単発後停止',   action:'使用状況確認と再購入提案'},
-  R08:{name:'次回購入予測', action:'次回発注前の事前提案'},
-  R09:{name:'数量アップ候補',action:'上位数量帯プラン'},
-  R10:{name:'関連商品候補', action:'クロスセル提案'}
+const KINDS = {
+  stopped_customer:{name:'取引が止まった', desc:'継続して注文があったのに、しばらく注文がない'},
+  stopped_product: {name:'商品が止まった', desc:'他の商品は続いているのに、その商品だけ止まった'},
+  single:          {name:'1回だけ',        desc:'1回きりで再注文がない（取引全体、または特定の商品）'},
+  decreasing:      {name:'数量が減った',   desc:'直近の注文数量が以前より落ちている'}
 };
-const RULE_ORDER = ['R05','R01','R06','R04','R03','R02','R07','R08','R09','R10'];
-const QTY_TIERS = [10,20,30,50,100,200];
 
-/* --- 指標計算 --- */
+/* --- 指標 --- */
 function metrics(cid,pid){
   const s = cpStat(cid,pid);
   if(!s || !s.events.length) return null;
   const ev = s.events;
   const last = ev[ev.length-1];
   const dsl = days(TODAY, last.date);
-  const ev6  = ev.filter(e=>days(TODAY,e.date)<=180);
-  const ev12 = ev.filter(e=>days(TODAY,e.date)<=365);
-  const base = ev12.length>=2 ? ev12 : ev;
+  const ev6 = ev.filter(e=>days(TODAY,e.date)<=180);
   const intervals=[];
-  for(let i=1;i<base.length;i++) intervals.push(days(base[i].date, base[i-1].date));
+  for(let i=1;i<ev.length;i++) intervals.push(days(ev[i].date, ev[i-1].date));
   const avgInt = intervals.length ? avg(intervals) : null;
-  const sd = intervals.length>1 ? Math.sqrt(avg(intervals.map(x=>(x-avgInt)**2))) : 0;
-  const cv = intervals.length ? (avgInt>0 ? sd/avgInt : 0) : null;  // 購入1回のみは「不規則」ではなく不明
   const last2 = ev.slice(-2);
-  const prior = ev6.slice(0,Math.max(0,ev6.length-2));
-  const prevAvgQty = prior.length ? avg(prior.map(e=>e.qty)) : (ev6.length?avg(ev6.map(e=>e.qty)):0);
+  const prior = ev6.slice(0, Math.max(0, ev6.length-2));
   return {
-    ev, ev6, ev12, last, dsl, avgInt, cv,
-    cnt6: ev6.length, cnt12: ev12.length, cntAll: ev.length,
+    ev, last, dsl, avgInt, cnt:ev.length, cnt6:ev6.length,
+    firstDate: ev[0].date,
+    avgQty: avg(ev.map(e=>e.qty)),
     last2AvgQty: avg(last2.map(e=>e.qty)),
-    prevAvgQty,
-    amt12: sum(ev12.map(e=>e.amount)),
-    avgQty: avg(ev6.length?ev6.map(e=>e.qty):ev.map(e=>e.qty)),
-    monthlyQty6: sum(ev6.map(e=>e.qty))/6
+    prevAvgQty: prior.length ? avg(prior.map(e=>e.qty)) : null,
+    amt12: sum(ev.filter(e=>days(TODAY,e.date)<=365).map(e=>e.amount))
   };
 }
-function customerMetrics(cid){
-  const cs = S.custStats.get(cid);
-  if(!cs) return null;
-  // 当月は集計途中なので比較から除き、完了した8ヶ月で判定する
-  const ms = lastMonths(9).slice(0,8);
-  const arr = ms.map(m=>cs.months.get(m)?.amount||0);
-  const last2 = avg(arr.slice(-2));
-  const prev6 = avg(arr.slice(0,6));
-  const dsl = cs.lastDate ? days(TODAY,cs.lastDate) : 9999;
-  return {cs, last2, prev6, dsl, total12:cs.total12};
+function customerOrders(cid){
+  return S.t.orders.filter(o=>o.customer_id===cid).map(o=>o.order_date).sort();
 }
-function tierFor(q){ return QTY_TIERS.find(t=>t>=q) || QTY_TIERS[QTY_TIERS.length-1]; }
 
-/* --- ルール実行 --- */
-function runRules(){
+/* --- 抽出 --- */
+function buildWatch(){
   const P = S.settings;
   const out = [];
-  const activeProducts = S.t.products.filter(p=>p.active_flag);
-  const prodById = new Map(S.t.products.map(p=>[p.id,p]));
+  const products = S.t.products.filter(p=>p.active_flag);
 
   for(const c of S.t.customers){
-    if(!c.offerable || !c.active_flag) continue;              // §16
-    const cm = customerMetrics(c.id);
-    if(!cm) continue;
-    const custActive = cm.dsl <= 60;
+    if(!c.offerable || !c.active_flag) continue;
+    const cs = S.custStats.get(c.id);
+    if(!cs || !cs.lastDate) continue;
 
-    // ---- 顧客単位のルール ----
-    // R04 購入金額低下
-    if(cm.prev6>0 && cm.last2 < cm.prev6*P.r04_amount_ratio && cm.dsl<=120){
-      // 減少幅が最大の商品を特定して提案対象にする
-      let worst=null;
-      for(const p of activeProducts){
-        const m = metrics(c.id,p.id); if(!m||m.cnt12<2) continue;
-        const drop = m.prevAvgQty>0 ? (m.prevAvgQty-m.last2AvgQty)/m.prevAvgQty : 0;
-        const w = drop * m.amt12;
-        if(!worst || w>worst.w) worst={p,m,w,drop};
-      }
-      if(worst) out.push(mk(c,worst.p,'R04',{
-        last2_amount:Math.round(cm.last2), prev6_amount:Math.round(cm.prev6),
-        ratio:cm.prev6? cm.last2/cm.prev6:0, drop:worst.drop
-      },worst.m));
-    }
-    // R06 休眠復活
-    const evAll = [...S.stats.values()].filter(s=>s.customer_id===c.id).flatMap(s=>s.events.map(e=>({...e,product_id:s.product_id})));
-    const inWindow = evAll.filter(e=>{ const d=days(TODAY,e.date); return d>P.r06_dormant_days && d<=365; });
-    const recent   = evAll.filter(e=>days(TODAY,e.date)<=P.r06_dormant_days);
-    if(inWindow.length>=3 && recent.length===0){
-      const g = groupBy(inWindow,e=>e.product_id);
-      let bestPid=null,bestAmt=-1;
-      for(const [pid,arr] of g){ const a=sum(arr.map(x=>x.amount)); if(a>bestAmt && prodById.get(pid)?.active_flag){bestAmt=a;bestPid=pid;} }
-      if(bestPid) out.push(mk(c,prodById.get(bestPid),'R06',{
-        dormant_days:cm.dsl, past_orders:inWindow.length, past_amount:Math.round(sum(inWindow.map(e=>e.amount)))
-      },metrics(c.id,bestPid)));
+    const dates = customerOrders(c.id);
+    const dsl   = days(TODAY, cs.lastDate);
+    const span  = days(TODAY, cs.firstDate);
+    const orders= dates.length;
+
+    // 1回だけ
+    if(orders===1 && dsl>=P.single_days){
+      out.push({kind:'single', customer_id:c.id, product_id:null,
+        last_date:cs.lastDate, days_since:dsl, orders:1,
+        amount:cs.total, note:`${jdate(cs.lastDate)}に1回のみ・${yen(cs.total)}`});
+      continue;
     }
 
-    // ---- 顧客×商品のルール ----
-    // R10 関連商品：候補が膨らむため顧客あたり最有力の1件だけに絞る
-    let best10 = null;
-    if(custActive){
-      for(const p of activeProducts){
-        if(cpStat(c.id,p.id)) continue;                  // 購入実績があれば対象外
-        const src = activeProducts.map(q=>{
-          if(q.group_code!==p.group_code || q.id===p.id) return null;
-          const mm = metrics(c.id,q.id);
-          return (mm && mm.cnt6>=P.r10_min_orders) ? {q,mm} : null;
-        }).filter(Boolean).sort((a,b)=>b.mm.amt12-a.mm.amt12)[0];
-        if(!src) continue;
-        const w = src.mm.amt12 * ((p.list_price-(p.cost||0))/(p.list_price||1));
-        if(!best10 || w>best10.w) best10={p,src,w};
-      }
-      if(best10){
-        const {p,src}=best10;
-        out.push(mk(c,p,'R10',{
-          source_product:src.q.name, source_qty6:Math.round(sum(src.mm.ev6.map(e=>e.qty))), source_cnt6:src.mm.cnt6
-        },src.mm,{rec_qty_base: src.mm.avgQty*0.5}));
-      }
+    // 取引が止まった（継続していた先だけ）
+    const stoppedCust = orders>=P.stop_min_orders && dsl>=P.stop_days && span>=P.min_history_days;
+    if(stoppedCust){
+      const ints=[]; for(let i=1;i<dates.length;i++) ints.push(days(dates[i],dates[i-1]));
+      out.push({kind:'stopped_customer', customer_id:c.id, product_id:null,
+        last_date:cs.lastDate, days_since:dsl, orders,
+        avg_interval: ints.length?Math.round(avg(ints)):null,
+        amount:cs.total12,
+        note:`${orders}回の取引があり、平均${ints.length?Math.round(avg(ints)):'—'}日間隔。最終注文から${dsl}日。`});
     }
 
-    for(const p of activeProducts){
+    // 商品単位
+    for(const p of products){
       const m = metrics(c.id,p.id);
       if(!m) continue;
 
-      // R01 購入停止
-      if(m.cnt6>=P.r01_min_orders && m.dsl>=P.r01_dormant_days){
-        out.push(mk(c,p,'R01',{orders6:m.cnt6, days_since:m.dsl, avg_qty:Math.round(m.avgQty), monthly_qty:Math.round(m.monthlyQty6)},m));
-        // R05 商品単位離反（顧客は継続購入中）
-        if(custActive) out.push(mk(c,p,'R05',{days_since:m.dsl, cust_last_days:cm.dsl, orders6:m.cnt6, avg_qty:Math.round(m.avgQty)},m));
+      // その商品だけ止まった（顧客の取引は続いている）
+      if(!stoppedCust && dsl<=P.stop_days && m.dsl>=P.stop_days
+         && m.cnt>=P.stop_min_orders && span>=P.min_history_days){
+        out.push({kind:'stopped_product', customer_id:c.id, product_id:p.id,
+          last_date:m.last.date, days_since:m.dsl, orders:m.cnt,
+          avg_interval:m.avgInt?Math.round(m.avgInt):null,
+          avg_qty:Math.round(m.avgQty), amount:m.amt12,
+          note:`${m.cnt}回購入（平均${num(Math.round(m.avgQty))}${unitOf(p)}／回）。この商品は${m.dsl}日、他の商品は${dsl}日前に注文あり。`});
       }
-      // R02 購入頻度低下
-      if(m.cntAll>=3 && m.avgInt && m.dsl > m.avgInt*P.r02_interval_mult && m.dsl<P.r01_dormant_days*2){
-        out.push(mk(c,p,'R02',{avg_interval:Math.round(m.avgInt), days_since:m.dsl, mult:(m.dsl/m.avgInt)},m));
+
+      // その商品を1回だけ買ってそれきり
+      if(!stoppedCust && m.cnt===1 && m.dsl>=P.single_days){
+        out.push({kind:'single', customer_id:c.id, product_id:p.id,
+          last_date:m.last.date, days_since:m.dsl, orders:1,
+          avg_qty:Math.round(m.avgQty), amount:m.ev[0].amount,
+          note:`${jdate(m.last.date)}に${num(m.ev[0].qty)}${unitOf(p)}を1回のみ。以降${m.dsl}日、再注文なし。`});
       }
-      // R03 購入数量減少
-      if(m.cnt6>=3 && m.prevAvgQty>0 && m.last2AvgQty < m.prevAvgQty*P.r03_qty_ratio && m.dsl<=90){
-        out.push(mk(c,p,'R03',{last2_qty:Math.round(m.last2AvgQty), prev_qty:Math.round(m.prevAvgQty), ratio:m.last2AvgQty/m.prevAvgQty},m,{rec_qty_base:m.prevAvgQty}));
-      }
-      // R07 単発後停止
-      if(m.cntAll===1 && m.dsl>=P.r07_single_days){
-        out.push(mk(c,p,'R07',{first_date:m.last.date, days_since:m.dsl, qty:m.last.qty},m));
-      }
-      // R08 次回購入予測
-      if(m.cntAll>=3 && m.avgInt && m.cv!=null && m.cv<=0.35){
-        const nextD = addDays(s2d(m.last.date), Math.round(m.avgInt));
-        const diff = days(nextD, TODAY);
-        if(Math.abs(diff)<=P.r08_window_days){
-          out.push(mk(c,p,'R08',{next_date:d2s(nextD), in_days:diff, avg_interval:Math.round(m.avgInt), regularity:1-m.cv},m));
-        }
-      }
-      // R09 数量アップ候補
-      if(m.cntAll>=P.r09_streak && m.dsl<=90){
-        const t = m.ev.slice(-P.r09_streak).map(e=>e.qty);
-        let up=true; for(let i=1;i<t.length;i++) if(t[i]<=t[i-1]) up=false;
-        if(up) out.push(mk(c,p,'R09',{trend:t.join(' → '), latest_qty:t[t.length-1], growth:t[t.length-1]/t[0]},m,{rec_qty_base:t[t.length-1]*1.4}));
+
+      // 数量が減った
+      if(m.cnt>=3 && m.prevAvgQty && m.dsl<=90 && span>=P.min_history_days
+         && m.last2AvgQty < m.prevAvgQty*P.decrease_ratio){
+        out.push({kind:'decreasing', customer_id:c.id, product_id:p.id,
+          last_date:m.last.date, days_since:m.dsl, orders:m.cnt,
+          avg_qty:Math.round(m.prevAvgQty), recent_qty:Math.round(m.last2AvgQty),
+          amount:m.amt12,
+          note:`直近2回の平均${num(Math.round(m.last2AvgQty))}${unitOf(p)}。以前の平均は${num(Math.round(m.prevAvgQty))}${unitOf(p)}。`});
       }
     }
   }
-  return out;
+  // 金額の大きい順。順位づけの根拠はこれだけ。
+  return out.sort((a,b)=>(b.amount||0)-(a.amount||0));
 }
 
-function mk(c,p,rule,ev,m,opt={}){
-  const baseQty = opt.rec_qty_base ?? (m ? (m.avgQty||m.monthlyQty6||20) : 20);
-  return {
-    customer_id:c.id, product_id:p.id, rule_code:rule, evidence:ev,
-    _m:m, _c:c, _p:p, rec_qty: tierFor(Math.max(10,Math.round(baseQty)))
-  };
-}
-
-/* --- スコアリング（§7.2） --- */
-function scoreAll(cands){
-  const amts = cands.map(x=>x._m?.amt12||0).filter(x=>x>0).sort((a,b)=>a-b);
-  const p90 = amts.length ? amts[Math.floor(amts.length*0.9)] : 1;
-  const winRate = pastWinRates();
-
-  for(const x of cands){
-    const m=x._m, p=x._p, e=x.evidence;
-    // 1. 過去売上規模 0-25
-    const sales = clamp(((m?.amt12||0)/(p90||1))*25, 0, 25);
-    // 2. 減少/停止の強さ 0-25
-    let sev = 8;
-    switch(x.rule_code){
-      case 'R01': sev = clamp(10 + (e.days_since-60)/12, 10, 25); break;
-      case 'R05': sev = clamp(14 + (e.days_since-60)/10, 14, 25); break;
-      case 'R06': sev = clamp(12 + e.past_orders*1.6, 12, 25); break;
-      case 'R04': sev = clamp((1-(e.ratio||0))*25, 6, 25); break;
-      case 'R03': sev = clamp((1-(e.ratio||0))*30, 6, 25); break;
-      case 'R02': sev = clamp((e.mult-1.5)*10+9, 6, 22); break;
-      case 'R07': sev = clamp(9 + e.days_since/15, 9, 20); break;
-      case 'R08': sev = 8; break;
-      case 'R09': sev = clamp(6 + (e.growth-1)*14, 6, 18); break;
-      case 'R10': sev = 6; break;
-    }
-    // 3. 購入規則性 0-15
-    const reg = (m && m.cv!=null) ? clamp((1-Math.min(m.cv,1))*15,0,15) : 5; // 規則性が不明なときは中立
-    // 4. 直近の変化 0-15
-    let chg = 6;
-    if(x.rule_code==='R03') chg = clamp((1-(e.ratio||0))*18,0,15);
-    if(x.rule_code==='R04') chg = clamp((1-(e.ratio||0))*18,0,15);
-    if(x.rule_code==='R08') chg = clamp(15-Math.abs(e.in_days),4,15);
-    if(x.rule_code==='R09') chg = 12;
-    if(['R01','R05','R06'].includes(x.rule_code)) chg = clamp((e.days_since||e.dormant_days||60)/12,4,15);
-    // 5. 利益/戦略商品重要度 0-10
-    const margin = p.cost&&p.list_price ? (p.list_price-p.cost)/p.list_price : 0.25;
-    const imp = clamp(margin*25,2,10);
-    // 6. 反応実績/過去提案結果 0-10
-    const wr = winRate.byRule[x.rule_code];
-    const cwr = winRate.byCustomer[x.customer_id];
-    const react = clamp(((wr==null?0.4:wr)*0.6 + (cwr==null?0.4:cwr)*0.4)*10, 0, 10);
-
-    x.parts = {sales, sev, reg, chg, imp, react};
-    x.score = Math.round(sales+sev+reg+chg+imp+react);
-    x.priority = x.score>=S.settings.score_s?'S' : x.score>=S.settings.score_a?'A' : x.score>=S.settings.score_b?'B':'C';
-    x.confidence = x.score>=S.settings.score_s && reg>=10 ? '高' : x.score>=S.settings.score_a ? '中':'低';
-  }
-  return cands;
-}
-
-function pastWinRates(){
-  const tById = new Map(S.t.offer_targets.map(t=>[t.id,t]));
-  const byRule={}, byCust={}, byProd={};
-  const add=(o,k,won)=>{ if(k==null) return; o[k]=o[k]||{w:0,n:0}; o[k].n++; if(won) o[k].w++; };
-  for(const r of S.t.offer_results){
-    const t = tById.get(r.offer_target_id); if(!t) continue;
-    const won = r.result_code==='won'||r.result_code==='partial';
-    add(byRule,t.rule_code,won); add(byCust,t.customer_id,won);
-    const plan = byId(S.t.offer_plans,t.offer_plan_id);
-    const items = S.t.offer_plan_items.filter(i=>i.offer_plan_id===t.offer_plan_id);
-    items.forEach(i=>add(byProd,i.product_id,won));
-  }
-  const rate = o => Object.fromEntries(Object.entries(o).map(([k,v])=>[k, v.n>=1? v.w/v.n : null]));
-  return {byRule:rate(byRule), byCustomer:rate(byCust), byProduct:rate(byProd), raw:{byRule,byProd}};
-}
-
-/* --- 重複統合と抑制（§15,§16） --- */
-function mergeAndSuppress(cands){
-  const P=S.settings;
-  const blocked = (cid,pid)=>{
-    if(S.t.offer_blocks.some(b=>b.customer_id===cid && b.product_id===pid && (!b.until || days(s2d(b.until),TODAY)>=0)))
-      return '手動で提案対象外';
-    // 有効期間中の確定済/送付済提案
-    for(const t of S.t.offer_targets){
-      if(t.customer_id!==cid) continue;
-      const plan = byId(S.t.offer_plans,t.offer_plan_id); if(!plan) continue;
-      const has = S.t.offer_plan_items.some(i=>i.offer_plan_id===plan.id && i.product_id===pid);
-      if(!has) continue;
-      if(plan.status==='confirmed' && plan.end_date && days(s2d(plan.end_date),TODAY)>=0) return '有効な提案が進行中';
-      const d = S.t.offer_deliveries.find(x=>x.offer_target_id===t.id);
-      if(d && days(TODAY,d.sent_at) < P.resuggest_block_days) return `${P.resuggest_block_days}日以内に提案済`;
-      const r = S.t.offer_results.find(x=>x.offer_target_id===t.id);
-      if(r && (r.reason_codes||[]).includes('stopped_use') && days(TODAY,r.registered_at) < P.stopped_block_days) return '使用中止による失注';
-    }
-    return null;
-  };
-
-  const map = new Map();
-  for(const x of cands){
-    const key = x.customer_id+'|'+x.product_id;
-    const cur = map.get(key);
-    if(!cur){ x.also=[]; map.set(key,x); continue; }
-    const keep = pickPrimary(cur,x), drop = keep===cur?x:cur;
-    keep.also = [...(cur.also||[]),...(x.also||[]),{rule_code:drop.rule_code, evidence:drop.evidence, score:drop.score}]
-      .filter(a=>a.rule_code!==keep.rule_code);
-    keep.score = Math.max(cur.score,x.score) + Math.min(6, keep.also.length*2); // 複数ルール該当は加点
-    keep.score = Math.min(100, keep.score);
-    keep.priority = keep.score>=S.settings.score_s?'S':keep.score>=S.settings.score_a?'A':keep.score>=S.settings.score_b?'B':'C';
-    map.set(key,keep);
-  }
-  const out=[];
-  for(const x of map.values()){
-    const b = blocked(x.customer_id,x.product_id);
-    if(b){ x._blocked=b; continue; }
-    if(x.priority==='C') continue;   // 40点未満は非表示（§7.2）
-    out.push(x);
-  }
-  return out.sort((a,b)=>b.score-a.score);
-}
-function pickPrimary(a,b){
-  if(a.score!==b.score) return a.score>b.score?a:b;
-  return RULE_ORDER.indexOf(a.rule_code) <= RULE_ORDER.indexOf(b.rule_code) ? a : b;
-}
-
-/* --- 文章生成（§13）：根拠数値を必ず含める ------------------------------
-   CONFIG.aiEndpoint が設定されていれば外部AIへ委譲。未設定時はローカル
-   テンプレート。いずれの場合も evidence（実績値）を併記する。          */
-function genTexts(x){
-  const c=x._c,p=x._p,e=x.evidence,m=x._m;
-  const cm = customerMetrics(c.id);
-  const custState = cm && cm.dsl<=45 ? '他商品は継続購入中' : cm && cm.dsl<=90 ? '取引は継続しているが全体に鈍化' : '全体の取引が停止';
-  let reason='', hypo='', rec='';
-  switch(x.rule_code){
-    case 'R01':
-      reason=`過去6ヶ月で${e.orders6}回購入（平均${num(e.avg_qty)}／回、月あたり約${num(e.monthly_qty)}）だが、直近${e.days_since}日は購入なし。`;
-      hypo=`定期使用していた商品が止まっている。在庫過多・施術メニュー変更・他社切替のいずれか。`;
-      rec=`従来の購入水準である${num(x.rec_qty)}${unitOf(p)}を軸に、期間限定の特別条件で復活を促す。`; break;
-    case 'R05':
-      reason=`当該商品は直近${e.days_since}日購入なし。一方で顧客全体の最終購入は${e.cust_last_days}日前で取引は継続。`;
-      hypo=`クリニック自体の離反ではなく、この商品のみ仕入先が変わった可能性が高い。`;
-      rec=`${num(x.rec_qty)}${unitOf(p)}／上位数量帯の条件を提示し、仕入シェアの奪還を狙う。`; break;
-    case 'R02':
-      reason=`平均購入間隔は${e.avg_interval}日だが、最終購入から${e.days_since}日（平均の${e.mult.toFixed(1)}倍）経過。`;
-      hypo=`発注忘れ、または在庫消化の鈍化。切替まで至っていない可能性が高い。`;
-      rec=`次回発注のタイミング提案として${num(x.rec_qty)}${unitOf(p)}の条件を提示する。`; break;
-    case 'R03':
-      reason=`直近2回の平均が${num(e.last2_qty)}${unitOf(p)}。過去6ヶ月平均${num(e.prev_qty)}${unitOf(p)}の${pct(e.ratio,0)}まで減少。`;
-      hypo=`小口発注への切替、もしくは一部を他社から購入している可能性。`;
-      rec=`元の水準${num(x.rec_qty)}${unitOf(p)}に戻すためのまとめ買い条件を提示する。`; break;
-    case 'R04':
-      reason=`直近2ヶ月の売上が月平均${yen(e.last2_amount)}。過去6ヶ月平均${yen(e.prev6_amount)}の${pct(e.ratio,0)}。`;
-      hypo=`複数商品にまたがる発注抑制。最も減少幅が大きいのが${p.name}。`;
-      rec=`減少が顕著な${p.name}を起点に、${num(x.rec_qty)}${unitOf(p)}の条件で取引量の回復を図る。`; break;
-    case 'R06':
-      reason=`${e.dormant_days}日間購入なし。それ以前の1年間は${e.past_orders}回・計${yen(e.past_amount)}の取引。`;
-      hypo=`休眠状態。担当者交代や施術メニュー変更の可能性。まず接点回復が必要。`;
-      rec=`復活限定プランとして${num(x.rec_qty)}${unitOf(p)}の特別条件を提示する。`; break;
-    case 'R07':
-      reason=`${jdate(e.first_date)}に${num(e.qty)}${unitOf(p)}を初回購入したのみ。以降${e.days_since}日間再購入なし。`;
-      hypo=`トライアル後の定着に至っていない。使用感・症例での不安が残っている可能性。`;
-      rec=`使用状況を確認したうえで、${num(x.rec_qty)}${unitOf(p)}の再購入条件を提示する。`; break;
-    case 'R08':
-      reason=`平均${e.avg_interval}日周期で購入。次回予測日は${jdate(e.next_date)}（${e.in_days>=0?`あと${e.in_days}日`:`${-e.in_days}日超過`}）。`;
-      hypo=`発注周期が安定しており、事前提案で数量を積み増せる余地がある。`;
-      rec=`発注前のこのタイミングで${num(x.rec_qty)}${unitOf(p)}の数量条件を提示する。`; break;
-    case 'R09':
-      reason=`直近の購入数量が ${e.trend} と連続で増加（${e.growth.toFixed(1)}倍）。`;
-      hypo=`施術件数が伸びている。上位数量帯へ引き上げる好機。`;
-      rec=`1つ上の数量帯${num(x.rec_qty)}${unitOf(p)}の単価メリットを提示する。`; break;
-    case 'R10':
-      reason=`${e.source_product}を過去6ヶ月で${e.source_cnt6}回・計${num(e.source_qty6)}購入。同カテゴリの${p.name}は購入実績なし。`;
-      hypo=`同カテゴリを継続使用しており、併用・置換の提案余地がある。`;
-      rec=`導入しやすい${num(x.rec_qty)}${unitOf(p)}から提案する。`; break;
-  }
-  return {
-    reason_text: reason,
-    summary_text: `顧客全体状況：${custState}（最終購入 ${cm?.cs?.lastDate?jdate(cm.cs.lastDate):'—'}、直近12ヶ月 ${yen(cm?.total12)}）`,
-    hypothesis_text: hypo,
-    recommendation_text: rec
-  };
-}
-function unitOf(p){
-  if(p && p.unit) return p.unit;                       // 実績CSVの単位を優先
-  if(/Thread|スレッド/i.test(p?.category||'')) return '本';
-  if(/カートリッジ|消耗品/.test(p?.category||'')) return '個';
-  return '箱';
+/* 実績の蓄積期間 */
+function shortHistory(){
+  const span = dataSpanDays();
+  return span && span < S.settings.min_history_days ? span : 0;
 }
 
 /* 顧客向けコメント（提案書本文・編集可） */
-function genCustomerComment(plan, items, customer, cand){
-  const p = byId(S.t.products, items[0]?.product_id) || {};
+function genCustomerComment(plan, items, customer){
+  const names = [...new Set((items||[]).map(i=>i.product_name || byId(S.t.products,i.product_id)?.name).filter(Boolean))];
   const head = `いつも大変お世話になっております。${CONFIG.company.name}${CONFIG.company.dept}でございます。`;
-  let mid;
-  if(cand){
-    switch(cand.rule_code){
-      case 'R06': mid = `このたび、${p.name}につきまして期間限定のご提案をご用意いたしました。`; break;
-      case 'R09': mid = `${p.name}のご使用が増えているとのことで、上位数量帯の条件をご案内いたします。`; break;
-      case 'R10': mid = `${p.name}のご導入をご検討いただける機会として、初回向けの条件をご用意いたしました。`; break;
-      default:    mid = `${p.name}につきまして、今回に限り下記条件でご提供が可能となりました。`;
-    }
-  } else {
-    mid = `${p.name}につきまして、下記の条件でご提案申し上げます。`;
-  }
+  const mid  = names.length
+    ? `${names.slice(0,3).join('、')}${names.length>3?' ほか':''}につきまして、今回に限り下記条件でご提供が可能となりました。`
+    : `下記の条件でご提案申し上げます。`;
   const tail = `輸入商品のため数量・納期に限りがございます。ご検討のうえ、${plan.end_date?jdate(plan.end_date):'期限'}までにご連絡いただけますと幸いです。`;
   return `${head}\n\n${mid}\n\n${tail}`;
 }
 
-/* 外部AI（任意）：根拠値を渡して文章のみ生成させる */
-async function aiRefine(payload){
-  if(!CONFIG.aiEndpoint) return null;
-  try{
-    const r = await fetch(CONFIG.aiEndpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
-    if(!r.ok) return null;
-    return await r.json();
-  }catch(e){ console.warn('AI endpoint失敗',e); return null; }
+function unitOf(p){
+  if(p && p.unit) return p.unit;
+  if(/Thread|スレッド/i.test(p?.category||'')) return '本';
+  return '箱';
 }
 
-/* 月次バッチ（§15） */
-async function generateCandidates(){
-  rebuildStats();
-  const raw = runRules();
-  scoreAll(raw);
-  const merged = mergeAndSuppress(raw);
-  const ym = d2s(TODAY).slice(0,7);
-  // 当月の未着手候補を洗い替え
-  const keep = S.t.ai_candidates.filter(x=>!(x.ym===ym && x.status==='new'));
-  const removed = S.t.ai_candidates.filter(x=>x.ym===ym && x.status==='new');
-  if(DB.mode==='supabase') for(const r of removed) await DB.remove('ai_candidates', r.id);
-  else S.t.ai_candidates = keep;
-
-  const rows = merged.map(x=>{
-    const t = genTexts(x);
-    return {
-      id:uid(), ym, customer_id:x.customer_id, product_id:x.product_id, rule_code:x.rule_code,
-      also_rules:(x.also||[]).map(a=>a.rule_code), score:x.score, priority:x.priority,
-      confidence:x.confidence, rec_qty:x.rec_qty,
-      evidence_json:{...x.evidence, parts:x.parts},
-      reason_text:t.reason_text, summary_text:t.summary_text,
-      hypothesis_text:t.hypothesis_text, recommendation_text:t.recommendation_text,
-      status:'new', created_at:new Date().toISOString()
-    };
-  }).filter(r=>!S.t.ai_candidates.some(x=>x.ym===ym && x.customer_id===r.customer_id && x.product_id===r.product_id));
-
-  if(rows.length) await DB.insert('ai_candidates',rows);
-  await audit('generate','ai_candidates',ym,null,{count:rows.length});
-  return rows.length;
+/* 過去の提案結果（レポート用） */
+function pastWinRates(){
+  const tById = new Map(S.t.offer_targets.map(t=>[t.id,t]));
+  const byProd={};
+  const add=(o,k,won)=>{ if(k==null) return; o[k]=o[k]||{w:0,n:0}; o[k].n++; if(won) o[k].w++; };
+  for(const r of S.t.offer_results){
+    const t = tById.get(r.offer_target_id); if(!t) continue;
+    const won = r.result_code==='won'||r.result_code==='partial';
+    S.t.offer_plan_items.filter(i=>i.offer_plan_id===t.offer_plan_id).forEach(i=>add(byProd,i.product_id,won));
+  }
+  return {byProd};
 }
 </script>
 <script>
@@ -1017,7 +753,7 @@ async function generateCandidates(){
 const NAV = [
   {g:'提案'},
   {k:'dashboard', t:'ダッシュボード'},
-  {k:'candidates',t:'AI提案候補',  badge:()=>countCand()},
+  {k:'watch',     t:'注文の動き',  badge:()=>countWatch()},
   {k:'plans',     t:'提案プラン',  badge:()=>S.t.offer_plans.filter(p=>p.status==='draft').length},
   {k:'delivery',  t:'送付・結果',  badge:()=>countTodo()},
   {g:'データ'},
@@ -1029,12 +765,12 @@ const NAV = [
   {k:'settings',  t:'設定'},
   {k:'audit',     t:'監査ログ'}
 ];
-const TITLES = {dashboard:'ダッシュボード',candidates:'AI提案候補',plans:'提案プラン',
+const TITLES = {dashboard:'ダッシュボード',watch:'注文の動き',plans:'提案プラン',
   planEdit:'プラン作成 / 編集',delivery:'送付・結果管理',customers:'顧客',
   customer:'顧客詳細',products:'商品マスタ',import:'購入実績取込',reports:'レポート / KPI',
   settings:'設定',audit:'監査ログ',proposal:'提案書'};
 
-function countCand(){ const ym=d2s(TODAY).slice(0,7); return S.t.ai_candidates.filter(c=>c.status==='new'&&visibleCand(c)).length; }
+function countWatch(){ return watchRows().filter(r=>mine(byId(S.t.customers,r.customer_id))).length; }
 function countTodo(){
   return S.t.offer_targets.filter(t=>{
     const plan=byId(S.t.offer_plans,t.offer_plan_id);
@@ -1044,7 +780,6 @@ function countTodo(){
     return !d || !r;
   }).length;
 }
-function visibleCand(c){ const cu=byId(S.t.customers,c.customer_id); return mine(cu); }
 
 function go(name, params={}){ location.hash = '#/'+name+(params.id?('/'+params.id):''); }
 function parseHash(){
@@ -1077,6 +812,19 @@ function render(){
 }
 
 /* --- 小物 --- */
+function dashWatchTable(list){
+  if(!list.length) return `<div class="empty">該当する先はありません</div>`;
+  return `<table class="t"><thead><tr><th>施設名</th><th>担当</th><th>最終注文</th><th class="num">経過</th>
+    <th class="num">注文回数</th><th class="num">取引金額</th><th></th></tr></thead><tbody>
+  ${list.map(r=>{ const cu=byId(S.t.customers,r.customer_id);
+    return `<tr><td><button class="link" onclick="go('customer',{id:'${cu.id}'})">${esc(cu.name)}</button></td>
+      <td class="w">${esc(userName(cu.sales_owner_id))}</td><td class="w">${r.last_date}</td>
+      <td class="num"><b>${r.days_since}</b>日</td><td class="num">${num(r.orders)}</td>
+      <td class="num">${yen(r.amount)}</td>
+      <td class="w">${CAN.edit()?`<button class="btn sm" onclick="newPlan('individual','${cu.id}')">提案書を作る</button>`:''}</td></tr>`;
+  }).join('')}</tbody></table>`;
+}
+
 function chartBars(months, values, opt={}){
   const w=Math.max(300, months.length*44), h=opt.h||120, pad=22;
   const max = Math.max(1,...values);
@@ -1092,12 +840,38 @@ function chartBars(months, values, opt={}){
     ${months.map((m,i)=>`<text x="${pad+i*bw+bw*0.5}" y="${h+15}" text-anchor="middle">${m.slice(5)}月</text>`).join('')}
   </svg>`;
 }
-function priChip(p){ return `<span class="pri ${p}">${p}</span>`; }
+function dashWatchTable(list){
+  if(!list.length) return `<div class="empty">該当する先はありません</div>`;
+  return `<table class="t"><thead><tr><th>施設名</th><th>担当</th><th>最終注文</th><th class="num">経過</th>
+    <th class="num">注文回数</th><th class="num">取引金額</th><th></th></tr></thead><tbody>
+  ${list.map(r=>{ const cu=byId(S.t.customers,r.customer_id);
+    return `<tr><td><button class="link" onclick="go('customer',{id:'${cu.id}'})">${esc(cu.name)}</button></td>
+      <td class="w">${esc(userName(cu.sales_owner_id))}</td><td class="w">${r.last_date}</td>
+      <td class="num"><b>${r.days_since}</b>日</td><td class="num">${num(r.orders)}</td>
+      <td class="num">${yen(r.amount)}</td>
+      <td class="w">${CAN.edit()?`<button class="btn sm" onclick="newPlan('individual','${cu.id}')">提案書を作る</button>`:''}</td></tr>`;
+  }).join('')}</tbody></table>`;
+}
+
+function chartBars(months, values, opt={}){
+  const w=Math.max(300, months.length*44), h=opt.h||120, pad=22;
+  const max = Math.max(1,...values);
+  const bw = (w-pad*2)/months.length;
+  return `<svg class="chart" viewBox="0 0 ${w} ${h+26}" preserveAspectRatio="none" role="img" aria-label="月別推移">
+    <line x1="${pad}" y1="${h}" x2="${w-pad}" y2="${h}" stroke="#D5DCE3"/>
+    ${values.map((v,i)=>{
+      const bh = v/max*(h-14);
+      const x = pad+i*bw+bw*0.18, y = h-bh;
+      return `<rect x="${x}" y="${y}" width="${bw*0.64}" height="${Math.max(0,bh)}" fill="${opt.color||'#0F6E5C'}" opacity="${v?0.9:0.15}"/>
+      ${v?`<text x="${x+bw*0.32}" y="${y-3}" text-anchor="middle">${num(v)}</text>`:''}`;
+    }).join('')}
+    ${months.map((m,i)=>`<text x="${pad+i*bw+bw*0.5}" y="${h+15}" text-anchor="middle">${m.slice(5)}月</text>`).join('')}
+  </svg>`;
+}
 function custName(id){ return byId(S.t.customers,id)?.name || '—'; }
 function prodName(id){ return byId(S.t.products,id)?.name || '—'; }
 function userName(id){ return byId(S.t.users,id)?.name || '—'; }
 const STATUS_JA = {draft:'下書き',confirmed:'確定済み',expired:'期限切れ',
-  new:'未確認',adopted:'採用',skipped:'見送り',created:'作成済み',
   unsent:'未送付',sent:'送付済み',replied:'返信あり',
   won:'受注',partial:'一部受注',pass:'見送り',no_reply:'返信なし',lost:'失注'};
 const REASONS = {timing:'タイミング',stock:'在庫あり',stopped_use:'使用中止',price:'価格',competitor:'競合他社',lead_time:'納期',changed:'商品変更',other:'その他'};
@@ -1106,8 +880,8 @@ const VIEWS = {};
 
 /* ============================ ダッシュボード §8.1 ==================== */
 VIEWS.dashboard = function(){
-  const cands = S.t.ai_candidates.filter(c=>c.status==='new'&&visibleCand(c));
-  const cnt = p => cands.filter(c=>c.priority===p).length;
+  const watch = watchRows().filter(r=>mine(byId(S.t.customers,r.customer_id)));
+  const cnt = k => watch.filter(r=>r.kind===k).length;
   const plans = S.t.offer_plans;
   const drafts = plans.filter(p=>p.status==='draft').length;
   const targets = S.t.offer_targets.filter(t=>{const c=byId(S.t.customers,t.customer_id);return mine(c);});
@@ -1126,11 +900,13 @@ VIEWS.dashboard = function(){
   });
 
   return `
+  ${shortHistory()?`<div class="alert">取り込んだ実績は約${Math.max(1,Math.round(shortHistory()/30))}ヶ月分です。
+    「止まった」「減った」の判定には${Math.round(S.settings.min_history_days/30)}ヶ月以上の実績が必要です。</div>`:''}
   ${soon.length?`<div class="alert">期限3日以内で未送付の提案が ${soon.length} 件あります。<button class="link" onclick="go('delivery')">送付管理を開く</button></div>`:''}
   ${expired.length?`<div class="alert">有効期限を過ぎた確定済みプランが ${expired.length} 件あります。<button class="link" onclick="expirePlans()">期限切れにする</button></div>`:''}
   <div class="grid g4">
-    <div class="card"><div class="kpi"><div class="l">今月の提案候補</div><div class="n">${cands.length}</div>
-      <div class="d">${priChip('S')} ${cnt('S')}　${priChip('A')} ${cnt('A')}　${priChip('B')} ${cnt('B')}</div></div></div>
+    <div class="card"><div class="kpi"><div class="l">気になる先</div><div class="n">${watch.length}</div>
+      <div class="d">止まった ${cnt('stopped_customer')+cnt('stopped_product')}　1回だけ ${cnt('single')}　減った ${cnt('decreasing')}</div></div></div>
     <div class="card"><div class="kpi"><div class="l">下書き</div><div class="n">${drafts}</div><div class="d">確定済みで未送付 ${unsent} 件</div></div></div>
     <div class="card"><div class="kpi"><div class="l">返信待ち</div><div class="n">${waiting}</div><div class="d">結果未登録</div></div></div>
     <div class="card"><div class="kpi"><div class="l">受注率</div><div class="n">${sentN?pct(won.length/sentN,0):'—'}</div><div class="d">送付 ${sentN} 件 / 受注 ${won.length} 件</div></div></div>
@@ -1145,16 +921,16 @@ VIEWS.dashboard = function(){
     </div></div>
     <div class="card"><h2>次にやること</h2><div class="body">
       <div class="bar">
-        <button class="btn" onclick="go('candidates')">AI候補を確認</button>
+        <button class="btn" onclick="go('watch')">注文の動きを見る</button>
         <button class="btn ghost" onclick="newPlan('routine')">定例プランを作成</button>
         <button class="btn ghost" onclick="newPlan('individual')">個別プランを作成</button>
         ${CAN.import()?`<button class="btn ghost" onclick="go('import')">購入実績を取り込む</button>`:''}
       </div>
-      <p class="hint">実績を取り込むと候補が再生成されます。候補は顧客×商品ごとに1件へ統合され、40点未満は表示しません。</p>
+      <p class="hint">実績を取り込むと「注文の動き」が自動で集計し直されます。判定は購入実績の数値だけで、推測は入れていません。</p>
     </div></div>
   </div>
-  <div class="card"><h2>優先度の高い候補<span class="r"><button class="btn sm ghost" onclick="go('candidates')">すべて見る</button></span></h2>
-    <div class="body tight"><div class="scroll">${candTable(cands.slice(0,8),false)}</div></div></div>`;
+  <div class="card"><h2>取引が止まった先<span class="r"><button class="btn sm ghost" onclick="go('watch')">すべて見る</button></span></h2>
+    <div class="body tight"><div class="scroll">${dashWatchTable(watch.filter(r=>r.kind==='stopped_customer').slice(0,8))}</div></div></div>`;
 };
 
 function targetAmount(t){
@@ -1169,156 +945,86 @@ async function expirePlans(){
   toast(`${list.length}件を期限切れにしました`); render();
 }
 
-/* ============================ AI提案候補 §8.2 ======================== */
-const CF = {priority:'',owner:'',product:'',category:'',rule:'',pref:'',rank:'',status:'new',q:'',collapse:true};
-const CSEL = new Set();
+/* ============================ 注文の動き ============================ */
+const WF = {kind:'stopped_customer', owner:'', product:'', pref:'', q:''};
+let WATCH = null;
+function watchRows(){ if(!WATCH) WATCH = buildWatch(); return WATCH; }
+function refreshWatch(){ WATCH = null; }
 
-VIEWS.candidates = function(){
-  const list = filteredCands();
-  const byCust = groupBy(list,c=>c.customer_id);
-  let shown = [];
-  for(const [cid,arr] of byCust){
-    arr.sort((a,b)=>b.score-a.score);
-    arr.forEach((c,i)=> shown.push({...c,_hidden: CF.collapse && i>=S.settings.max_per_customer, _rank:i}));
-  }
-  shown.sort((a,b)=>b.score-a.score);
-  const visible = shown.filter(c=>!c._hidden);
-  const hidden = shown.length-visible.length;
+VIEWS.watch = function(){
+  const all = watchRows().filter(r=>{
+    const cu=byId(S.t.customers,r.customer_id);
+    return cu && mine(cu);
+  });
+  const count = k => all.filter(r=>r.kind===k).length;
+  const list = all.filter(r=>{
+    if(r.kind!==WF.kind) return false;
+    const cu=byId(S.t.customers,r.customer_id);
+    if(WF.owner && cu.sales_owner_id!==WF.owner) return false;
+    if(WF.pref && cu.pref!==WF.pref) return false;
+    if(WF.product && r.product_id!==WF.product) return false;
+    if(WF.q && !cu.name.includes(WF.q)) return false;
+    return true;
+  });
+  const short = shortHistory();
 
   return `
-  <div class="card"><h2>絞り込み<span class="r">
-      <button class="btn sm ghost" onclick="resetCF()">条件をクリア</button>
-      ${CAN.import()?`<button class="btn sm" onclick="regenerate()">候補を再生成</button>`:''}
-    </span></h2>
-    <div class="body">
-      <div class="grid g4" style="gap:10px">
-        ${sel('priority','優先度',[['','すべて'],['S','S'],['A','A'],['B','B']])}
-        ${sel('owner','担当営業',[['','すべて'],...S.t.users.filter(u=>u.role==='sales').map(u=>[u.id,u.name])])}
-        ${sel('rule','判定タイプ',[['','すべて'],...Object.entries(RULES).map(([k,v])=>[k,`${k} ${v.name}`])])}
-        ${sel('category','カテゴリ',[['','すべて'],...[...new Set(S.t.products.map(p=>p.category))].map(c=>[c,c])])}
-        ${sel('product','商品',[['','すべて'],...S.t.products.map(p=>[p.id,p.name])])}
-        ${sel('pref','都道府県',[['','すべて'],...[...new Set(S.t.customers.map(c=>c.pref))].map(c=>[c,c])])}
-        ${sel('rank','顧客ランク',[['','すべて'],['S','S'],['A','A'],['B','B'],['C','C']])}
-        ${sel('status','状態',[['','すべて'],['new','未確認'],['adopted','採用'],['skipped','見送り'],['created','作成済み']])}
-      </div>
-      <label class="f" style="margin:10px 0 0"><span>施設名で検索</span><input type="text" value="${esc(CF.q)}" oninput="CF.q=this.value;render()"></label>
-    </div>
-  </div>
+  ${short?`<div class="alert">取り込んだ実績は約${Math.max(1,Math.round(short/30))}ヶ月分です。
+    「止まった」「減った」の判定には${Math.round(S.settings.min_history_days/30)}ヶ月以上の実績が必要なため、
+    まだ拾えていない先があります。過去12ヶ月分を取り込んでください。</div>`:''}
 
   <div class="bar">
-    <b>${visible.length} 件</b>
-    ${hidden?`<span class="hint">同一顧客の下位 ${hidden} 件を折りたたみ中</span>
-      <button class="btn sm ghost" onclick="CF.collapse=false;render()">すべて表示</button>`:''}
-    ${!CF.collapse?`<button class="btn sm ghost" onclick="CF.collapse=true;render()">上位${S.settings.max_per_customer}件に絞る</button>`:''}
+    ${Object.entries(KINDS).map(([k,v])=>`<button class="btn sm ${WF.kind===k?'':'ghost'}" onclick="WF.kind='${k}';render()">
+      ${v.name} <b>${count(k)}</b></button>`).join('')}
     <div class="sp"></div>
-    ${CAN.edit()?`<button class="btn" onclick="bulkCreate()" ${CSEL.size?'':'disabled'}>選択した ${CSEL.size} 件でプラン作成</button>
-    <button class="btn ghost" onclick="bulkSkip()" ${CSEL.size?'':'disabled'}>見送り</button>`:''}
+    <button class="btn sm ghost" onclick="refreshWatch();render()">再集計</button>
   </div>
-  <div class="card"><div class="body tight"><div class="scroll">${candTable(visible,true)}</div></div></div>`;
+  <p class="hint" style="margin:-4px 0 12px">${KINDS[WF.kind].desc}</p>
+
+  <div class="card"><div class="body">
+    <div class="grid g4" style="gap:10px">
+      <label class="f" style="margin:0"><span>担当営業</span><select onchange="WF.owner=this.value;render()">
+        <option value="">すべて</option>${S.t.users.filter(u=>u.role==='sales').map(u=>`<option value="${u.id}" ${WF.owner===u.id?'selected':''}>${esc(u.name)}</option>`).join('')}</select></label>
+      <label class="f" style="margin:0"><span>都道府県</span><select onchange="WF.pref=this.value;render()">
+        <option value="">すべて</option>${[...new Set(S.t.customers.map(c=>c.pref).filter(Boolean))].map(p=>`<option ${WF.pref===p?'selected':''}>${esc(p)}</option>`).join('')}</select></label>
+      <label class="f" style="margin:0"><span>商品</span><select onchange="WF.product=this.value;render()">
+        <option value="">すべて</option>${S.t.products.map(p=>`<option value="${p.id}" ${WF.product===p.id?'selected':''}>${esc(p.name)}</option>`).join('')}</select></label>
+      <label class="f" style="margin:0"><span>施設名で検索</span><input type="text" value="${esc(WF.q)}" oninput="WF.q=this.value;render()"></label>
+    </div>
+  </div></div>
+
+  <div class="bar"><b>${list.length} 件</b><span class="hint">直近12ヶ月の取引金額が大きい順</span></div>
+  <div class="card"><div class="body tight"><div class="scroll">${watchTable(list)}</div></div></div>`;
 };
-VIEWS.candidates.after = ()=>{};
 
-function sel(key,label,opts){
-  return `<label class="f" style="margin:0"><span>${label}</span><select onchange="CF.${key}=this.value;CSEL.clear();render()">
-    ${opts.map(([v,t])=>`<option value="${esc(v)}" ${CF[key]===v?'selected':''}>${esc(t)}</option>`).join('')}</select></label>`;
-}
-function resetCF(){ Object.assign(CF,{priority:'',owner:'',product:'',category:'',rule:'',pref:'',rank:'',status:'new',q:'',collapse:true}); CSEL.clear(); render(); }
-
-function filteredCands(){
-  return S.t.ai_candidates.filter(c=>{
-    const cu=byId(S.t.customers,c.customer_id), p=byId(S.t.products,c.product_id);
-    if(!cu||!p) return false;
-    if(!mine(cu)) return false;
-    if(CF.status && c.status!==CF.status) return false;
-    if(CF.priority && c.priority!==CF.priority) return false;
-    if(CF.owner && cu.sales_owner_id!==CF.owner) return false;
-    if(CF.rule && c.rule_code!==CF.rule && !(c.also_rules||[]).includes(CF.rule)) return false;
-    if(CF.category && p.category!==CF.category) return false;
-    if(CF.product && c.product_id!==CF.product) return false;
-    if(CF.pref && cu.pref!==CF.pref) return false;
-    if(CF.rank && cu.rank!==CF.rank) return false;
-    if(CF.q && !cu.name.includes(CF.q)) return false;
-    return true;
-  }).sort((a,b)=>b.score-a.score);
-}
-
-function candTable(list, withSel){
-  if(!list.length) return `<div class="empty"><b>候補がありません</b>絞り込み条件を変えるか、購入実績を取り込んで候補を再生成してください。</div>`;
+function watchTable(list){
+  if(!list.length) return `<div class="empty"><b>該当する先はありません</b>実績を取り込むか、条件を変えてください。</div>`;
+  const perProduct = ['stopped_product','decreasing','single'].includes(WF.kind);
   return `<table class="t sticky-h"><thead><tr>
-    ${withSel?'<th style="width:28px"></th>':''}
-    <th>優先度</th><th>施設名</th><th>担当</th><th>商品</th><th>判定</th><th>根拠</th>
-    <th class="num">過去平均</th><th class="num">直近</th><th class="num">推奨数量</th><th>状態</th><th></th>
-  </tr></thead><tbody>
-  ${list.map(c=>{
-    const cu=byId(S.t.customers,c.customer_id), p=byId(S.t.products,c.product_id);
-    const e=c.evidence_json||{};
-    const past = e.avg_qty ?? e.prev_qty ?? e.source_qty6 ?? null;
-    const recent = e.last2_qty ?? (e.days_since!=null?`${e.days_since}日前`:null) ?? (e.latest_qty??null);
-    return `<tr class="${CSEL.has(c.id)?'sel':''}">
-      ${withSel?`<td><input type="checkbox" ${CSEL.has(c.id)?'checked':''} onchange="toggleSel('${c.id}')"></td>`:''}
-      <td>${priChip(c.priority)}<div class="hint">${c.score}点</div></td>
+    <th>施設名</th><th>担当</th>${perProduct?'<th>商品</th>':''}
+    <th>最終注文</th><th class="num">経過</th><th class="num">注文回数</th>
+    ${WF.kind==='decreasing'?'<th class="num">以前の数量</th><th class="num">直近の数量</th>':''}
+    ${WF.kind==='stopped_customer'?'<th class="num">平均間隔</th>':''}
+    <th class="num">取引金額</th><th>内容</th><th></th></tr></thead><tbody>
+  ${list.map(r=>{
+    const cu=byId(S.t.customers,r.customer_id);
+    const p=r.product_id?byId(S.t.products,r.product_id):null;
+    return `<tr>
       <td><button class="link" onclick="go('customer',{id:'${cu.id}'})">${esc(cu.name)}</button>
-        <div class="hint">${esc(cu.pref)} / ランク${esc(cu.rank)}</div></td>
+        <div class="hint">${esc(cu.pref||'')}</div></td>
       <td class="w">${esc(userName(cu.sales_owner_id))}</td>
-      <td>${esc(p.name)}<div class="hint">${esc(p.category)}</div></td>
-      <td class="w"><span class="tag">${c.rule_code}</span> ${RULES[c.rule_code]?.name||''}
-        ${(c.also_rules||[]).length?`<div class="hint">+${c.also_rules.join(',')}</div>`:''}</td>
-      <td style="min-width:280px;font-size:12.5px">${esc(c.reason_text)}</td>
-      <td class="num">${past!=null?num(past):'—'}</td>
-      <td class="num">${recent!=null? (typeof recent==='number'?num(recent):esc(recent)) :'—'}</td>
-      <td class="num"><b>${num(c.rec_qty)}</b></td>
-      <td class="w"><span class="tag ${c.status==='new'?'':'on'}">${STATUS_JA[c.status]||c.status}</span></td>
-      <td class="w"><button class="btn sm ghost" onclick="candDetail('${c.id}')">詳細</button></td>
+      ${perProduct?`<td>${p?esc(p.name):'<span class="hint">取引全体</span>'}</td>`:''}
+      <td class="w">${r.last_date}</td>
+      <td class="num"><b>${r.days_since}</b>日</td>
+      <td class="num">${num(r.orders)}</td>
+      ${WF.kind==='decreasing'?`<td class="num">${num(r.avg_qty)}</td><td class="num"><b>${num(r.recent_qty)}</b></td>`:''}
+      ${WF.kind==='stopped_customer'?`<td class="num">${r.avg_interval?r.avg_interval+'日':'—'}</td>`:''}
+      <td class="num">${yen(r.amount)}</td>
+      <td style="font-size:12.5px;min-width:260px">${esc(r.note)}</td>
+      <td class="w">${CAN.edit()?`<button class="btn sm" onclick="newPlan('individual','${cu.id}'${p?`,'${p.id}'`:''})">提案書を作る</button>`:''}</td>
     </tr>`;
   }).join('')}
   </tbody></table>`;
-}
-function toggleSel(id){ CSEL.has(id)?CSEL.delete(id):CSEL.add(id); render(); }
-
-function candDetail(id){
-  const c = byId(S.t.ai_candidates,id);
-  const cu = byId(S.t.customers,c.customer_id), p=byId(S.t.products,c.product_id);
-  const st = cpStat(c.customer_id,c.product_id);
-  const ms = lastMonths(12);
-  const vals = ms.map(m=>st?.months.get(m)?.qty||0);
-  const e = c.evidence_json||{};
-  const parts = e.parts||{};
-  openModal(`${cu.name} / ${p.name}`,`
-    <div class="bar">${priChip(c.priority)} <b>${c.score}点</b> <span class="tag">${c.rule_code} ${RULES[c.rule_code]?.name}</span>
-      ${(c.also_rules||[]).map(r=>`<span class="tag mut">${r} ${RULES[r]?.name}</span>`).join('')}
-      <span class="tag">確度 ${c.confidence}</span></div>
-    <div class="evidence" style="margin-bottom:12px">${esc(c.reason_text)}</div>
-    <div class="ai" style="margin-bottom:12px">
-      <div class="lbl">顧客全体状況</div><div>${esc(c.summary_text)}</div>
-      <div class="lbl" style="margin-top:8px">仮説</div><div>${esc(c.hypothesis_text)}</div>
-      <div class="lbl" style="margin-top:8px">推奨提案</div><div>${esc(c.recommendation_text)}</div>
-    </div>
-    <h4 style="margin:0 0 4px;font-size:13px">月別購入数量（12ヶ月）</h4>
-    ${chartBars(ms,vals)}
-    <h4 style="margin:14px 0 4px;font-size:13px">スコア内訳</h4>
-    <table class="t"><tbody>
-      ${[['過去売上規模',parts.sales,25],['減少/停止の強さ',parts.sev,25],['購入規則性',parts.reg,15],
-         ['直近の変化',parts.chg,15],['利益/戦略重要度',parts.imp,10],['反応実績',parts.react,10]]
-        .map(([l,v,m])=>`<tr><td>${l}</td><td class="num">${v==null?'—':v.toFixed(1)} / ${m}</td></tr>`).join('')}
-    </tbody></table>`,
-    `${CAN.edit()?`<button class="btn ghost" onclick="skipCand('${c.id}')">見送り</button>
-      <button class="btn" onclick="closeModal();newPlanFromCand('${c.id}')">この候補でプランを作る</button>`:''}
-     <button class="btn ghost" onclick="closeModal()">閉じる</button>`);
-}
-async function skipCand(id){
-  const c=byId(S.t.ai_candidates,id);
-  await DB.update('ai_candidates',id,{status:'skipped'});
-  await audit('skip','ai_candidates',id,{status:c.status},{status:'skipped'});
-  closeModal(); toast('見送りにしました'); render();
-}
-async function bulkSkip(){
-  for(const id of CSEL) await DB.update('ai_candidates',id,{status:'skipped'});
-  toast(`${CSEL.size}件を見送りにしました`); CSEL.clear(); render();
-}
-async function regenerate(){
-  toast('候補を生成しています…');
-  const n = await generateCandidates();
-  toast(`${n}件の候補を生成しました`); render();
 }
 
 /* ============================ 顧客 §8.3 ============================== */
@@ -1338,10 +1044,10 @@ VIEWS.customers = function(){
     </div></div></div>
   <div class="card"><div class="body tight"><div class="scroll">
   <table class="t sticky-h"><thead><tr><th>顧客ID</th><th>施設名</th><th>担当</th><th>都道府県</th><th>ランク</th>
-    <th>最終購入</th><th class="num">直近12ヶ月売上</th><th class="num">候補</th><th>提案可否</th></tr></thead><tbody>
+    <th>最終購入</th><th class="num">直近12ヶ月売上</th><th class="num">気になる点</th><th>提案可否</th></tr></thead><tbody>
   ${list.map(c=>{
     const cs=S.custStats.get(c.id);
-    const cand=S.t.ai_candidates.filter(x=>x.customer_id===c.id&&x.status==='new').length;
+    const cand=watchRows().filter(x=>x.customer_id===c.id).length;
     const dsl = cs?.lastDate? days(TODAY,cs.lastDate):null;
     return `<tr><td class="w">${esc(c.member_id)}</td>
       <td><button class="link" onclick="go('customer',{id:'${c.id}'})">${esc(c.name)}</button></td>
@@ -1361,7 +1067,7 @@ VIEWS.customer = function(){
   const ms = lastMonths(12);
   const amt = ms.map(m=>cs?.months.get(m)?.amount||0);
   const prods = [...S.stats.values()].filter(s=>s.customer_id===c.id);
-  const cands = S.t.ai_candidates.filter(x=>x.customer_id===c.id).sort((a,b)=>b.score-a.score);
+  const watch = watchRows().filter(x=>x.customer_id===c.id);
   const targets = S.t.offer_targets.filter(t=>t.customer_id===c.id);
 
   return `
@@ -1404,12 +1110,13 @@ VIEWS.customer = function(){
     </tbody></table></div></div></div>
 
   <div class="grid g2">
-    <div class="card"><h2>AI検知履歴</h2><div class="body tight"><div class="scroll">
-      ${cands.length?`<table class="t"><thead><tr><th>年月</th><th>優先度</th><th>商品</th><th>判定</th><th>状態</th><th></th></tr></thead><tbody>
-      ${cands.map(x=>`<tr><td class="w">${x.ym}</td><td>${priChip(x.priority)}</td><td>${esc(prodName(x.product_id))}</td>
-        <td class="w"><span class="tag">${x.rule_code}</span></td><td class="w">${STATUS_JA[x.status]}</td>
-        <td><button class="btn sm ghost" onclick="candDetail('${x.id}')">詳細</button></td></tr>`).join('')}
-      </tbody></table>`:'<div class="empty">検知履歴はありません</div>'}
+    <div class="card"><h2>気になる点</h2><div class="body tight"><div class="scroll">
+      ${watch.length?`<table class="t"><thead><tr><th>区分</th><th>商品</th><th>最終注文</th><th>内容</th></tr></thead><tbody>
+      ${watch.map(x=>`<tr><td class="w"><span class="tag warn">${KINDS[x.kind].name}</span></td>
+        <td>${x.product_id?esc(prodName(x.product_id)):'<span class="hint">取引全体</span>'}</td>
+        <td class="w">${x.last_date}<div class="hint">${x.days_since}日前</div></td>
+        <td style="font-size:12.5px">${esc(x.note)}</td></tr>`).join('')}
+      </tbody></table>`:'<div class="empty">とくにありません</div>'}
     </div></div></div>
     <div class="card"><h2>提案履歴と結果</h2><div class="body tight"><div class="scroll">
       ${targets.length?`<table class="t"><thead><tr><th>プラン</th><th>状態</th><th>送付</th><th>結果</th><th class="num">金額</th></tr></thead><tbody>
@@ -1497,7 +1204,20 @@ async function saveProduct(id){
 /* =========================================================================
    §6 提案プラン管理 / §8.4-8.6 / §9 ステータス / §10 結果
    ========================================================================= */
-const PLAN_TYPE = {routine:'定例単月',individual:'個別対応',ai:'AI発見型'};
+const PLAN_TYPE = {routine:'定例単月',individual:'個別対応',ai:'個別対応'};
+
+/* 提案明細の商品情報。マスタに紐づいていれば原価などを補い、
+   直接入力された商品は入力された名称・単位をそのまま使う。 */
+function itemInfo(i){
+  const p = i.product_id ? byId(S.t.products, i.product_id) : null;
+  return {
+    p,
+    name: i.product_name || p?.name || '（商品名未入力）',
+    unit: i.unit || p?.unit || '箱',
+    cost: p?.cost ?? null,
+    floor: p?.floor_price ?? null
+  };
+}
 
 VIEWS.plans = function(){
   const list = S.t.offer_plans.filter(p=>{
@@ -1515,7 +1235,7 @@ VIEWS.plans = function(){
   ${list.map(p=>{
     const items=S.t.offer_plan_items.filter(i=>i.offer_plan_id===p.id);
     const tg=S.t.offer_targets.filter(t=>t.offer_plan_id===p.id);
-    const pn=[...new Set(items.map(i=>prodName(i.product_id)))].join(' / ');
+    const pn=[...new Set(items.map(i=>itemInfo(i).name))].join(' / ');
     const expired = p.status==='confirmed'&&p.end_date&&days(TODAY,p.end_date)>0;
     return `<tr><td class="w"><span class="tag">${PLAN_TYPE[p.type]}</span></td>
       <td><button class="link" onclick="go('planEdit',{id:'${p.id}'})">${esc(p.title)}</button></td>
@@ -1541,7 +1261,7 @@ async function newPlan(type, customerId, productId){
     status:'draft', created_by:S.me.id, memo:'', comment_text:'', created_at:new Date().toISOString()
   });
   if(p) await addPlanItemRows(plan.id, p);
-  if(customerId) await DB.insert('offer_targets',{id:uid(), offer_plan_id:plan.id, customer_id:customerId, ai_candidate_id:null, status:'unsent', qty:null, rule_code:null});
+  if(customerId) await DB.insert('offer_targets',{id:uid(), offer_plan_id:plan.id, customer_id:customerId, status:'unsent', qty:null});
   await audit('create','offer_plans',plan.id,null,{type,title});
   go('planEdit',{id:plan.id});
 }
@@ -1554,49 +1274,9 @@ async function addPlanItemRows(planId, p, baseQty){
     let price = p.list_price ? Math.round(p.list_price*rate/100)*100 : null;
     if(price && p.floor_price) price = Math.max(price, p.floor_price);
     await DB.insert('offer_plan_items',{id:uid(), offer_plan_id:planId, product_id:p.id,
-      qty_from:from, qty_to:to, list_price:p.list_price, offer_price:price});
+      product_name:p.name, unit:p.unit||'', qty_from:from, qty_to:to,
+      list_price:p.list_price, offer_price:price});
   }
-}
-
-async function newPlanFromCand(candId){
-  const c = byId(S.t.ai_candidates,candId);
-  const p = byId(S.t.products,c.product_id);
-  const plan = await DB.insert('offer_plans',{
-    id:uid(), type:'ai', title:`${TODAY.getFullYear()}年${TODAY.getMonth()+1}月 ${p.name} 特別提案`,
-    start_date:d2s(TODAY), end_date:d2s(addDays(TODAY,21)), status:'draft', created_by:S.me.id,
-    memo:`AI候補 ${c.rule_code}（${RULES[c.rule_code].name}／${c.score}点）から作成\n根拠：${c.reason_text}`,
-    comment_text:'', created_at:new Date().toISOString()
-  });
-  await addPlanItemRows(plan.id, p, c.rec_qty);
-  await DB.insert('offer_targets',{id:uid(), offer_plan_id:plan.id, customer_id:c.customer_id,
-    ai_candidate_id:c.id, status:'unsent', qty:c.rec_qty, rule_code:c.rule_code});
-  await DB.update('ai_candidates',c.id,{status:'created'});
-  await audit('create','offer_plans',plan.id,null,{from_candidate:candId});
-  go('planEdit',{id:plan.id});
-}
-
-async function bulkCreate(){
-  const cands=[...CSEL].map(id=>byId(S.t.ai_candidates,id)).filter(Boolean);
-  const g = groupBy(cands,c=>c.product_id);
-  let first=null;
-  for(const [pid,arr] of g){
-    const p=byId(S.t.products,pid);
-    const plan = await DB.insert('offer_plans',{
-      id:uid(), type:'ai', title:`${TODAY.getFullYear()}年${TODAY.getMonth()+1}月 ${p.name} 特別提案`,
-      start_date:d2s(TODAY), end_date:d2s(addDays(TODAY,21)), status:'draft', created_by:S.me.id,
-      memo:`AI候補 ${arr.length}件から一括作成`, comment_text:'', created_at:new Date().toISOString()
-    });
-    await addPlanItemRows(plan.id, p, Math.round(avg(arr.map(a=>a.rec_qty))));
-    for(const c of arr){
-      await DB.insert('offer_targets',{id:uid(), offer_plan_id:plan.id, customer_id:c.customer_id,
-        ai_candidate_id:c.id, status:'unsent', qty:c.rec_qty, rule_code:c.rule_code});
-      await DB.update('ai_candidates',c.id,{status:'created'});
-    }
-    first = first||plan.id;
-  }
-  CSEL.clear();
-  toast(`${g.size}件のプランを作成しました`);
-  if(first) go('planEdit',{id:first});
 }
 
 /* --- §8.4 プラン作成 / 編集 --- */
@@ -1631,49 +1311,57 @@ VIEWS.planEdit = function(){
         <label class="f"><span>開始日</span><input type="date" id="pl_start" value="${plan.start_date||''}" ${ro?'disabled':''}></label>
         <label class="f"><span>終了日（有効期限）</span><input type="date" id="pl_end" value="${plan.end_date||''}" ${ro?'disabled':''}></label>
       </div>
-      <label class="f"><span>納期目安</span><input type="text" id="pl_lead" value="${esc(plan.lead_time||items.map(i=>byId(S.t.products,i.product_id)?.lead_time).find(Boolean)||'')}" ${ro?'disabled':''}></label>
+      <label class="f"><span>納期目安</span><input type="text" id="pl_lead" value="${esc(plan.lead_time||items.map(i=>i.product_id?byId(S.t.products,i.product_id)?.lead_time:null).find(Boolean)||'')}" ${ro?'disabled':''}></label>
       <label class="f"><span>社内メモ（提案書には出ません）</span><textarea id="pl_memo" ${ro?'disabled':''}>${esc(plan.memo||'')}</textarea></label>
     </div></div>
 
     <div class="card"><h2>顧客向けコメント<span class="r">${ro?'':`<button class="btn sm ghost" onclick="regenComment('${plan.id}')">自動生成</button>`}</span></h2>
       <div class="body">
-      <label class="f"><span>提案書の本文</span><textarea id="pl_comment" style="min-height:150px" ${ro?'disabled':''}>${esc(plan.comment_text||genCustomerComment(plan,items,null,candOf(targets[0])))}</textarea></label>
+      <label class="f"><span>提案書の本文</span><textarea id="pl_comment" style="min-height:150px" ${ro?'disabled':''}>${esc(plan.comment_text||genCustomerComment(plan,items,byId(S.t.customers,targets[0]?.customer_id)))}</textarea></label>
       <label class="f"><span>注意事項</span><textarea id="pl_note" ${ro?'disabled':''}>${esc(plan.note_text||'輸入商品のため、在庫状況により納期が変動する場合がございます。ご発注後のキャンセル・返品はお受けできません。')}</textarea></label>
     </div></div>
   </div>
 
-  <div class="card"><h2>対象商品と数量条件<span class="r">${ro?'':`<button class="btn sm ghost" onclick="addItemRow('${plan.id}')">数量帯を追加</button>`}</span></h2>
+  <div class="card"><h2>対象商品と数量条件<span class="r">${ro?'':`<button class="btn sm ghost" onclick="addItemRow('${plan.id}')">商品を追加</button>`}</span></h2>
     <div class="body tight"><div class="scroll">
-    ${items.length?`<table class="t"><thead><tr><th>商品</th><th class="num">数量（下限）</th><th class="num">数量（上限）</th>
+    ${items.length?`<table class="t"><thead><tr><th style="min-width:220px">商品名</th><th>単位</th>
+      <th class="num">数量（下限）</th><th class="num">数量（上限）</th>
       <th class="num">通常価格</th><th class="num">特別価格</th><th class="num">値引率</th><th class="num">原価</th><th class="num">粗利率</th><th></th></tr></thead><tbody>
     ${items.map(i=>{
-      const p=byId(S.t.products,i.product_id)||{};
-      const mr = i.offer_price&&p.cost ? (i.offer_price-p.cost)/i.offer_price : null;
-      const bad = (mr!=null&&mr<S.settings.min_margin_rate) || (p.floor_price&&i.offer_price<p.floor_price);
-      return `<tr><td>${esc(p.name)}<div class="hint">${esc(p.sku||'')}</div></td>
+      const info=itemInfo(i);
+      const mr = i.offer_price&&info.cost ? (i.offer_price-info.cost)/i.offer_price : null;
+      const bad = (mr!=null&&mr<S.settings.min_margin_rate) || (info.floor&&i.offer_price<info.floor);
+      return `<tr>
+        <td><input type="text" list="prodList" value="${esc(info.name)}" ${ro?'disabled':''}
+              onchange="setItemName('${i.id}',this.value)" style="min-width:210px">
+            ${info.p?`<div class="hint">商品マスタと連動</div>`:'<div class="hint">直接入力</div>'}</td>
+        <td><input type="text" style="width:60px" value="${esc(info.unit)}" ${ro?'disabled':''} onchange="setItem('${i.id}','unit',this.value,true)"></td>
         <td class="num"><input type="number" style="width:80px" value="${i.qty_from||''}" ${ro?'disabled':''} onchange="setItem('${i.id}','qty_from',this.value)"></td>
         <td class="num"><input type="number" style="width:80px" value="${i.qty_to||''}" ${ro?'disabled':''} onchange="setItem('${i.id}','qty_to',this.value)" placeholder="以上"></td>
-        <td class="num">${yen(i.list_price)}</td>
+        <td class="num"><input type="number" style="width:100px" value="${i.list_price||''}" ${ro?'disabled':''} onchange="setItem('${i.id}','list_price',this.value)" placeholder="任意"></td>
         <td class="num"><input type="number" style="width:100px" value="${i.offer_price||''}" ${ro?'disabled':''} onchange="setItem('${i.id}','offer_price',this.value)"></td>
         <td class="num">${i.list_price&&i.offer_price?pct(1-i.offer_price/i.list_price,1):'—'}</td>
-        <td class="num">${yen(p.cost)}</td>
-        <td class="num ${bad?'':''}">${mr!=null?`<span class="${bad?'tag warn':''}">${pct(mr,1)}</span>`:'—'}</td>
+        <td class="num">${info.cost?yen(info.cost):'<span class="hint">—</span>'}</td>
+        <td class="num">${mr!=null?`<span class="${bad?'tag warn':''}">${pct(mr,1)}</span>`:'<span class="hint">—</span>'}</td>
         <td>${ro?'':`<button class="btn sm danger" onclick="delItem('${i.id}')">削除</button>`}</td></tr>`;
-    }).join('')}</tbody></table>`:`<div class="empty"><b>商品が未設定です</b>${ro?'':'「数量帯を追加」から商品と条件を登録してください。'}</div>`}
+    }).join('')}</tbody></table>
+    <datalist id="prodList">${S.t.products.filter(p=>p.active_flag).map(p=>`<option value="${esc(p.name)}">`).join('')}</datalist>
+    <p class="hint" style="padding:8px 14px;margin:0">商品名はそのまま入力できます。商品マスタと同じ名称にすると原価と粗利率が出ます。</p>`
+    :`<div class="empty"><b>商品が未入力です</b>${ro?'':'「商品を追加」から商品名と条件を入力してください。'}</div>`}
     </div></div></div>
 
   <div class="card"><h2>対象顧客<span class="r">
     ${ro?'':`<button class="btn sm ghost" onclick="pickTargets('${plan.id}')">顧客を選ぶ</button>
       ${plan.type==='routine'?`<button class="btn sm ghost" onclick="pickByCondition('${plan.id}')">条件で一括追加</button>`:''}`}</span></h2>
     <div class="body tight"><div class="scroll">
-    ${targets.length?`<table class="t"><thead><tr><th>施設名</th><th>担当</th><th class="num">提案数量</th><th>根拠</th><th class="num">提案金額</th><th>状態</th><th></th></tr></thead><tbody>
+    ${targets.length?`<table class="t"><thead><tr><th>施設名</th><th>担当</th><th class="num">提案数量</th><th>この顧客の状況</th><th class="num">提案金額</th><th>状態</th><th></th></tr></thead><tbody>
     ${targets.map(t=>{
       const cu=byId(S.t.customers,t.customer_id)||{};
-      const c=candOf(t);
+      const w=watchRows().find(x=>x.customer_id===t.customer_id && (x.product_id===items[0]?.product_id || x.product_id===null));
       return `<tr><td>${esc(cu.name)}<div class="hint">${esc(cu.pref||'')} / ランク${esc(cu.rank||'')}</div></td>
         <td class="w">${esc(userName(cu.sales_owner_id))}</td>
         <td class="num"><input type="number" style="width:80px" value="${t.qty||''}" ${ro?'disabled':''} onchange="setTarget('${t.id}','qty',this.value)"></td>
-        <td style="font-size:12.5px">${c?`<span class="tag">${c.rule_code}</span> ${esc(c.reason_text)}`:'<span class="hint">—</span>'}</td>
+        <td style="font-size:12.5px">${esc(w?w.note:'')||'<span class="hint">—</span>'}</td>
         <td class="num">${yen(targetAmount(t))}</td>
         <td class="w">${STATUS_JA[t.status]||t.status}</td>
         <td class="w"><button class="btn sm ghost" onclick="go('proposal',{id:'${t.id}'})">提案書</button>
@@ -1684,49 +1372,73 @@ VIEWS.planEdit = function(){
 `;
 };
 
-function candOf(t){ return t?.ai_candidate_id ? byId(S.t.ai_candidates,t.ai_candidate_id) : null; }
 function marginWarnings(items){
   const w=[];
   for(const i of items){
-    const p=byId(S.t.products,i.product_id); if(!p||!i.offer_price) continue;
-    if(p.floor_price && i.offer_price<p.floor_price) w.push(`${p.name}：特別価格 ${yen(i.offer_price)} が最低提案価格 ${yen(p.floor_price)} を下回っています。`);
-    else if(p.cost){
-      const mr=(i.offer_price-p.cost)/i.offer_price;
-      if(mr<S.settings.min_margin_rate) w.push(`${p.name}：粗利率 ${pct(mr,1)} が基準 ${pct(S.settings.min_margin_rate,0)} を下回っています。`);
+    const info=itemInfo(i); if(!i.offer_price) continue;
+    if(info.floor && i.offer_price<info.floor)
+      w.push(`${info.name}：特別価格 ${yen(i.offer_price)} が最低提案価格 ${yen(info.floor)} を下回っています。`);
+    else if(info.cost){
+      const mr=(i.offer_price-info.cost)/i.offer_price;
+      if(mr<S.settings.min_margin_rate)
+        w.push(`${info.name}：粗利率 ${pct(mr,1)} が基準 ${pct(S.settings.min_margin_rate,0)} を下回っています。`);
     }
   }
   return w;
 }
-async function setItem(id,key,val){
+async function setItem(id,key,val,isText){
   const before={...byId(S.t.offer_plan_items,id)};
-  const v = val===''?null:+val;
+  const v = isText ? String(val).trim() : (val===''?null:+val);
   await DB.update('offer_plan_items',id,{[key]:v});
   await audit('update','offer_plan_items',id,before,{[key]:v});
   render();
 }
 async function delItem(id){ await DB.remove('offer_plan_items',id); render(); }
+/* 商品名を直接入力。同名の商品がマスタにあれば自動で紐づける */
+async function setItemName(id,val){
+  const name=String(val).trim();
+  const p=S.t.products.find(x=>pkey(x.name)===pkey(name));
+  const patch={product_name:name, product_id:p?p.id:null};
+  if(p){ if(p.unit) patch.unit=p.unit; if(p.list_price) patch.list_price=p.list_price; }
+  await DB.update('offer_plan_items',id,patch);
+  await audit('update','offer_plan_items',id,null,patch);
+  render();
+}
 async function setTarget(id,key,val){ await DB.update('offer_targets',id,{[key]: val===''?null:+val}); render(); }
 async function delTarget(id){ await DB.remove('offer_targets',id); render(); }
 
 async function addItemRow(planId){
-  const opts = S.t.products.filter(p=>p.active_flag).map(p=>`<option value="${p.id}">${esc(p.name)}（${esc(p.sku)}）</option>`).join('');
-  openModal('数量帯を追加',`
-    <label class="f"><span>商品</span><select id="ai_p">${opts}</select></label>
-    <div class="grid g3" style="gap:10px">
+  openModal('商品を追加',`
+    <label class="f"><span>商品名</span>
+      <input type="text" id="ai_name" list="prodListModal" placeholder="そのまま入力できます" autocomplete="off">
+      <datalist id="prodListModal">${S.t.products.filter(p=>p.active_flag).map(p=>`<option value="${esc(p.name)}">`).join('')}</datalist>
+      <small class="hint">商品マスタにある名称を入れると、単位・通常価格・原価が自動で入ります。</small></label>
+    <div class="grid g4" style="gap:10px">
+      <label class="f"><span>単位</span><input type="text" id="ai_unit" value="箱"></label>
       <label class="f"><span>数量（下限）</span><input type="number" id="ai_from" value="30"></label>
       <label class="f"><span>数量（上限）</span><input type="number" id="ai_to" placeholder="空欄＝以上"></label>
-      <label class="f"><span>特別価格</span><input type="number" id="ai_price"></label>
+      <label class="f"><span>通常価格</span><input type="number" id="ai_list" placeholder="任意"></label>
     </div>
-    <p class="hint">特別価格を空欄にすると通常価格の8%引きで登録します。</p>`,
+    <label class="f"><span>特別価格</span><input type="number" id="ai_price"></label>`,
     `<button class="btn ghost" onclick="closeModal()">キャンセル</button><button class="btn" onclick="doAddItem('${planId}')">追加する</button>`);
-  $('#ai_p').onchange=()=>{ const p=byId(S.t.products,$('#ai_p').value); $('#ai_price').placeholder=Math.round(p.list_price*0.92); };
-  $('#ai_p').onchange();
+  $('#ai_name').oninput=()=>{
+    const p=S.t.products.find(x=>pkey(x.name)===pkey($('#ai_name').value));
+    if(!p) return;
+    if(p.unit) $('#ai_unit').value=p.unit;
+    if(p.list_price){ $('#ai_list').value=p.list_price; $('#ai_price').placeholder=Math.round(p.list_price*0.92); }
+  };
+  $('#ai_name').focus();
 }
 async function doAddItem(planId){
-  const p=byId(S.t.products,$('#ai_p').value);
-  const price = +$('#ai_price').value || Math.round(p.list_price*0.92);
-  await DB.insert('offer_plan_items',{id:uid(),offer_plan_id:planId,product_id:p.id,
-    qty_from:+$('#ai_from').value||null, qty_to:+$('#ai_to').value||null, list_price:p.list_price, offer_price:price});
+  const name=$('#ai_name').value.trim();
+  if(!name){ toast('商品名を入力してください'); return; }
+  const p=S.t.products.find(x=>pkey(x.name)===pkey(name));
+  const list  = $('#ai_list').value!=='' ? +$('#ai_list').value : (p?.list_price ?? null);
+  const price = $('#ai_price').value!=='' ? +$('#ai_price').value : (list?Math.round(list*0.92):null);
+  await DB.insert('offer_plan_items',{id:uid(), offer_plan_id:planId, product_id:p?p.id:null,
+    product_name:name, unit:$('#ai_unit').value.trim()||'箱',
+    qty_from:+$('#ai_from').value||null, qty_to:+$('#ai_to').value||null,
+    list_price:list, offer_price:price});
   closeModal(); render();
 }
 
@@ -1753,8 +1465,8 @@ async function applyTargets(planId){
   for(const t of cur) if(!chosen.includes(t.customer_id)) await DB.remove('offer_targets',t.id);
   for(const cid of chosen) if(!cur.some(t=>t.customer_id===cid)){
     const items=S.t.offer_plan_items.filter(i=>i.offer_plan_id===planId);
-    await DB.insert('offer_targets',{id:uid(),offer_plan_id:planId,customer_id:cid,ai_candidate_id:null,
-      status:'unsent', qty: items[0]?.qty_from||null, rule_code:null});
+    await DB.insert('offer_targets',{id:uid(),offer_plan_id:planId,customer_id:cid,
+      status:'unsent', qty: items[0]?.qty_from||null});
   }
   closeModal(); toast('対象顧客を更新しました'); render();
 }
@@ -1786,8 +1498,8 @@ async function applyCondition(planId){
       if(hist==='yes'&&!has) continue;
       if(hist==='no'&&has) continue;
     }
-    await DB.insert('offer_targets',{id:uid(),offer_plan_id:planId,customer_id:c.id,ai_candidate_id:null,
-      status:'unsent', qty: items[0]?.qty_from||null, rule_code:null});
+    await DB.insert('offer_targets',{id:uid(),offer_plan_id:planId,customer_id:c.id,
+      status:'unsent', qty: items[0]?.qty_from||null});
     n++;
   }
   closeModal(); toast(`${n}件を追加しました`); render();
@@ -1797,11 +1509,7 @@ async function regenComment(planId){
   const plan=byId(S.t.offer_plans,planId);
   const items=S.t.offer_plan_items.filter(i=>i.offer_plan_id===planId);
   const t=S.t.offer_targets.find(x=>x.offer_plan_id===planId);
-  const cand=candOf(t);
-  let text = genCustomerComment(plan,items,byId(S.t.customers,t?.customer_id),cand);
-  const ai = await aiRefine({task:'customer_comment',plan,items,candidate:cand});
-  if(ai?.text) text = ai.text;
-  $('#pl_comment').value = text;
+  $('#pl_comment').value = genCustomerComment(plan,items,byId(S.t.customers,t?.customer_id));
   toast('コメントを生成しました');
 }
 
@@ -1818,7 +1526,7 @@ async function confirmPlan(id){
   const plan=byId(S.t.offer_plans,id);
   const items=S.t.offer_plan_items.filter(i=>i.offer_plan_id===id);
   const targets=S.t.offer_targets.filter(t=>t.offer_plan_id===id);
-  if(!items.length){ toast('対象商品と数量条件を登録してください'); return; }
+  if(!items.length){ toast('商品を1件以上入力してください'); return; }
   if(!targets.length){ toast('対象顧客を登録してください'); return; }
   if(!plan.end_date){ toast('有効期限を入力してください'); return; }
   const warns=marginWarnings(items);
@@ -1843,9 +1551,6 @@ async function deletePlan(id){
   for(const t of targets){
     for(const d of S.t.offer_deliveries.filter(x=>x.offer_target_id===t.id)) await DB.remove('offer_deliveries',d.id);
     for(const r of S.t.offer_results.filter(x=>x.offer_target_id===t.id))    await DB.remove('offer_results',r.id);
-    // AI候補は未確認に戻し、翌月以降また拾えるようにする
-    if(t.ai_candidate_id && byId(S.t.ai_candidates,t.ai_candidate_id))
-      await DB.update('ai_candidates',t.ai_candidate_id,{status:'new'});
     await DB.remove('offer_targets',t.id);
   }
   for(const i of S.t.offer_plan_items.filter(x=>x.offer_plan_id===id)) await DB.remove('offer_plan_items',i.id);
@@ -1862,9 +1567,8 @@ VIEWS.proposal = function(){
   const plan=byId(S.t.offer_plans,t.offer_plan_id);
   const cu=byId(S.t.customers,t.customer_id);
   const items=S.t.offer_plan_items.filter(i=>i.offer_plan_id===plan.id).sort((a,b)=>(a.qty_from||0)-(b.qty_from||0));
-  const cand=candOf(t);
-  const body = plan.comment_text || genCustomerComment(plan,items,cu,cand);
-  const lead = items.map(i=>byId(S.t.products,i.product_id)?.lead_time).find(Boolean);
+  const body = plan.comment_text || genCustomerComment(plan,items,cu);
+  const lead = items.map(i=>i.product_id?byId(S.t.products,i.product_id)?.lead_time:null).find(Boolean);
 
   return `<div class="bar noprint"><button class="btn sm ghost" onclick="go('planEdit',{id:'${plan.id}'})">← プランへ戻る</button>
     <div class="sp"></div>
@@ -1881,10 +1585,10 @@ VIEWS.proposal = function(){
     ${(()=>{ const showList = items.some(i=>i.list_price);
       return `<table class="p"><thead><tr><th>商品名</th><th>ご提案数量</th>${showList?'<th>通常価格</th>':''}<th>特別価格</th><th>ご提案金額</th></tr></thead><tbody>
     ${items.map(i=>{
-      const p=byId(S.t.products,i.product_id)||{};
+      const info=itemInfo(i);
       const q=i.qty_from||0;
-      return `<tr><td>${esc(p.name)}</td>
-        <td>${num(i.qty_from)}${i.qty_to?`〜${num(i.qty_to)}`:'以上'}${unitOf(p)}</td>
+      return `<tr><td>${esc(info.name)}</td>
+        <td>${num(i.qty_from)}${i.qty_to?`〜${num(i.qty_to)}`:'以上'}${esc(info.unit)}</td>
         ${showList?`<td style="text-align:right">${yen(i.list_price)}</td>`:''}
         <td style="text-align:right"><b>${yen(i.offer_price)}</b></td>
         <td style="text-align:right">${i.offer_price?yen(i.offer_price*q)+'〜':'—'}</td></tr>`;
@@ -1904,9 +1608,9 @@ VIEWS.proposal = function(){
 function copyMailText(tid){
   const t=byId(S.t.offer_targets,tid), plan=byId(S.t.offer_plans,t.offer_plan_id), cu=byId(S.t.customers,t.customer_id);
   const items=S.t.offer_plan_items.filter(i=>i.offer_plan_id===plan.id);
-  const lines=[`${cu.name} 御中`,'',plan.comment_text||genCustomerComment(plan,items,cu,candOf(t)),'','【ご提案条件】',
-    ...items.map(i=>{const p=byId(S.t.products,i.product_id);
-      return `・${p.name}　${num(i.qty_from)}${i.qty_to?'〜'+num(i.qty_to):'以上'}${unitOf(p)}　${yen(i.offer_price)}${i.list_price?`（通常 ${yen(i.list_price)}）`:''}`;}),
+  const lines=[`${cu.name} 御中`,'',plan.comment_text||genCustomerComment(plan,items,cu),'','【ご提案条件】',
+    ...items.map(i=>{const info=itemInfo(i);
+      return `・${info.name}　${num(i.qty_from)}${i.qty_to?'〜'+num(i.qty_to):'以上'}${info.unit}　${yen(i.offer_price)}${i.list_price?`（通常 ${yen(i.list_price)}）`:''}`;}),
     '',`有効期限：${plan.end_date?jdate(plan.end_date):'—'}`,`納期目安：${plan.lead_time||'ご発注後にご案内いたします'}`,'',
     `${CONFIG.company.name} ${CONFIG.company.dept}　${userName(cu.sales_owner_id)}`,
     `TEL ${CONFIG.company.tel} / ${CONFIG.company.email}`];
@@ -2334,102 +2038,70 @@ async function commitImport(){
     {orders:orders.length, items:items.length, customers:r.unknownCust.size, products:r.unknownProd.size});
 
   const newProd=r.unknownProd.size;
-  toast(`${items.length}明細を取り込みました。候補を再生成します…`,3000);
   IMP.result=null; IMP.rows=[]; IMP.head=[]; IMP.fileName='';
-  const n=await generateCandidates();
-  if(newProd) toast(`取込完了。候補 ${n}件。新しく登録した ${newProd}件の商品は通常価格・原価が空欄です。`,6000);
-  else toast(`取込完了。${n}件の提案候補を生成しました。`,4000);
-  go(newProd?'products':'candidates');
+  rebuildStats(); refreshWatch();
+  if(newProd) toast(`${items.length}明細を取り込みました。新しく登録した ${newProd}件の商品は通常価格・原価が空欄です。`,6000);
+  else toast(`${items.length}明細を取り込みました。`,4000);
+  go(newProd?'products':'watch');
 }
 
 /* ============================ §11 レポート ========================== */
 VIEWS.reports = function(){
-  const targets=S.t.offer_targets;
   const dl=id=>S.t.offer_deliveries.find(d=>d.offer_target_id===id);
   const rs=id=>S.t.offer_results.find(r=>r.offer_target_id===id);
+  const targets=S.t.offer_targets;
   const sent=targets.filter(t=>dl(t.id));
   const results=sent.map(t=>rs(t.id)).filter(Boolean);
   const won=results.filter(r=>['won','partial'].includes(r.result_code));
-  const cands=S.t.ai_candidates;
-  const adopted=cands.filter(c=>['adopted','created'].includes(c.status));
   const wr=pastWinRates();
 
   const kpi=[
-    ['提案候補数', num(cands.length), `AI ${cands.length}件 / 定例 ${S.t.offer_plans.filter(p=>p.type==='routine').length}プラン / 個別 ${S.t.offer_plans.filter(p=>p.type==='individual').length}プラン`],
-    ['提案実施率', adopted.length?pct(sent.length/adopted.length,0):'—', `送付 ${sent.length} ÷ 採用 ${adopted.length}`],
+    ['提案した件数', num(sent.length), `プラン ${S.t.offer_plans.length}件 / 提案先 ${targets.length}件`],
+    ['結果を登録した件数', num(results.length), `未登録 ${sent.length-results.length}件`],
     ['受注率', sent.length?pct(won.length/sent.length,0):'—', `受注 ${won.length} ÷ 送付 ${sent.length}`],
-    ['提案売上', yen(sum(sent.map(targetAmount))), '送付済みの提案金額合計'],
-    ['受注売上', yen(sum(won.map(r=>r.amount||0))), '結果登録済みの受注金額'],
-    ['復活率', (()=>{ const dormant=targets.filter(t=>['R01','R06'].includes(t.rule_code)&&dl(t.id));
-        const w=dormant.filter(t=>['won','partial'].includes(rs(t.id)?.result_code));
-        return dormant.length?pct(w.length/dormant.length,0):'—'; })(), '休眠/停止顧客の再受注率']
+    ['提案金額', yen(sum(sent.map(targetAmount))), '送付済みの提案金額合計'],
+    ['受注金額', yen(sum(won.map(r=>r.amount||0))), '結果登録済みの受注金額'],
+    ['気になる先', num(watchRows().length), '注文の動きで拾っている件数']
   ];
-
-  const ruleRows=Object.keys(RULES).map(k=>{
-    const raw=wr.raw.byRule[k]||{w:0,n:0};
-    const cand=cands.filter(c=>c.rule_code===k).length;
-    return {k,cand,n:raw.n,w:raw.w};
-  });
   const prodRows=S.t.products.map(p=>{
-    const raw=wr.raw.byProd[p.id]||{w:0,n:0};
-    const cand=cands.filter(c=>c.product_id===p.id).length;
-    return {p,cand,n:raw.n,w:raw.w};
-  }).filter(r=>r.cand||r.n);
+    const raw=wr.byProd[p.id]||{w:0,n:0};
+    return {p, n:raw.n, w:raw.w};
+  }).filter(r=>r.n);
 
   return `<div class="grid g3">
     ${kpi.map(([l,v,d])=>`<div class="card"><div class="kpi"><div class="l">${l}</div><div class="n">${v}</div><div class="d">${d}</div></div></div>`).join('')}
   </div>
   <div class="grid g2">
-    <div class="card"><h2>判定ルール別</h2><div class="body tight"><div class="scroll">
-      <table class="t"><thead><tr><th>ルール</th><th class="num">候補数</th><th class="num">送付</th><th class="num">受注</th><th class="num">受注率</th></tr></thead><tbody>
-      ${ruleRows.map(r=>`<tr><td><span class="tag">${r.k}</span> ${RULES[r.k].name}</td>
-        <td class="num">${r.cand}</td><td class="num">${r.n}</td><td class="num">${r.w}</td>
-        <td class="num">${r.n?pct(r.w/r.n,0):'—'}</td></tr>`).join('')}
-      </tbody></table></div>
-      <p class="hint" style="padding:10px 14px;margin:0">受注率はスコアの「反応実績」に反映され、翌月の候補順位に効きます。</p>
-    </div></div>
-    <div class="card"><h2>商品別</h2><div class="body tight"><div class="scroll">
-      <table class="t"><thead><tr><th>商品</th><th class="num">候補数</th><th class="num">送付</th><th class="num">受注</th><th class="num">受注率</th></tr></thead><tbody>
-      ${prodRows.map(r=>`<tr><td>${esc(r.p.name)}</td><td class="num">${r.cand}</td><td class="num">${r.n}</td>
-        <td class="num">${r.w}</td><td class="num">${r.n?pct(r.w/r.n,0):'—'}</td></tr>`).join('')
-        ||'<tr><td class="hint" style="padding:14px">データがありません</td></tr>'}
+    <div class="card"><h2>商品別の提案結果</h2><div class="body tight"><div class="scroll">
+      <table class="t"><thead><tr><th>商品</th><th class="num">送付</th><th class="num">受注</th><th class="num">受注率</th></tr></thead><tbody>
+      ${prodRows.map(r=>`<tr><td>${esc(r.p.name)}</td><td class="num">${r.n}</td>
+        <td class="num">${r.w}</td><td class="num">${pct(r.w/r.n,0)}</td></tr>`).join('')
+        ||'<tr><td class="hint" style="padding:14px">送付して結果を登録すると集計されます</td></tr>'}
       </tbody></table></div></div></div>
-  </div>
-  <div class="card"><h2>失注理由</h2><div class="body tight"><div class="scroll">
-    <table class="t"><thead><tr><th>理由</th><th class="num">件数</th></tr></thead><tbody>
-    ${Object.entries(REASONS).map(([k,v])=>{
-      const n=S.t.offer_results.filter(r=>(r.reason_codes||[]).includes(k)).length;
-      return n?`<tr><td>${v}</td><td class="num">${n}</td></tr>`:'';
-    }).join('')||'<tr><td class="hint" style="padding:14px">結果が登録されると集計されます</td></tr>'}
-    </tbody></table></div></div></div>`;
+    <div class="card"><h2>失注・見送りの理由</h2><div class="body tight"><div class="scroll">
+      <table class="t"><thead><tr><th>理由</th><th class="num">件数</th></tr></thead><tbody>
+      ${Object.entries(REASONS).map(([k,v])=>{
+        const n=S.t.offer_results.filter(r=>(r.reason_codes||[]).includes(k)).length;
+        return n?`<tr><td>${v}</td><td class="num">${n}</td></tr>`:'';
+      }).join('')||'<tr><td class="hint" style="padding:14px">結果が登録されると集計されます</td></tr>'}
+      </tbody></table></div></div></div>
+  </div>`;
 };
 
 /* ============================ 設定 ================================== */
 const SETDEF=[
-  ['r01_dormant_days','購入停止と見なす日数','R01。この日数以上購入がなければ停止と判定',,'日'],
-  ['r01_min_orders','購入停止の最低購入回数','R01。過去6ヶ月の購入回数',,'回'],
-  ['r02_interval_mult','頻度低下の倍率','R02。平均購入間隔の何倍で検知するか',,'倍'],
-  ['r03_qty_ratio','数量減少の比率','R03。直近2回平均が過去6ヶ月平均のこの比率未満',,''],
-  ['r04_amount_ratio','売上減少の比率','R04。直近2ヶ月が過去6ヶ月平均のこの比率未満',,''],
-  ['r05_dormant_days','商品単位離反の日数','R05',,'日'],
-  ['r06_dormant_days','休眠と見なす日数','R06',,'日'],
-  ['r07_single_days','単発後停止の日数','R07',,'日'],
-  ['r08_window_days','次回購入予測の許容幅','R08。予測日の前後',,'日'],
-  ['r09_streak','数量アップの連続回数','R09',,'回'],
-  ['r10_min_orders','クロスセル判定の購入回数','R10。主商品の過去6ヶ月購入回数',,'回'],
-  ['score_s','優先度Sの閾値','これ以上でS',,'点'],
-  ['score_a','優先度Aの閾値','これ以上でA',,'点'],
-  ['score_b','優先度Bの閾値','これ未満は候補に出さない',,'点'],
-  ['min_margin_rate','最低粗利率','下回ると確定時に警告。0.20＝20%',,''],
-  ['remind_days','送付後リマインド日数','結果未登録を強調表示するまでの日数',,'日'],
-  ['resuggest_block_days','同一商品の再提案抑制','この日数以内に提案済みなら候補から除外',,'日'],
-  ['stopped_block_days','使用中止による抑制','「使用中止」で失注した商品を除外する日数',,'日'],
-  ['max_per_customer','顧客あたり標準表示件数','候補一覧で折りたたまずに見せる件数',,'件']
+  ['stop_days','止まったと見なす日数','最終注文からこの日数が過ぎたら「止まった」として拾う',,'日'],
+  ['stop_min_orders','継続していたと見なす注文回数','これ未満の先は「止まった」に出さない',,'回'],
+  ['single_days','1回だけの経過日数','1回の注文からこの日数が過ぎたら拾う',,'日'],
+  ['decrease_ratio','減ったと見なす比率','直近2回の平均が以前の平均のこの比率を下回ったら拾う。0.6＝6割',,''],
+  ['min_history_days','判定に必要な実績期間','これ未満の実績しかない先は「止まった/減った」を判定しない',,'日'],
+  ['min_margin_rate','最低粗利率','下回るとプラン確定時に警告。0.20＝20%',,''],
+  ['remind_days','送付後リマインド日数','結果未登録を強調表示するまでの日数',,'日']
 ];
 VIEWS.settings = function(){
   if(!CAN.settings()) return `<div class="empty"><b>設定権限がありません</b>管理者でログインしてください。</div>`;
   return `
-  <div class="card"><h2>判定パラメータ<span class="r"><button class="btn sm ghost" onclick="resetSettings()">初期値に戻す</button>
+  <div class="card"><h2>抽出の条件<span class="r"><button class="btn sm ghost" onclick="resetSettings()">初期値に戻す</button>
     <button class="btn sm" onclick="saveSettings()">保存する</button></span></h2><div class="body">
     <div class="grid g3" style="gap:10px">
     ${SETDEF.map(([k,l,h,,u])=>`<label class="f" style="margin:0"><span>${l}${u?`（${u}）`:''}</span>
@@ -2455,8 +2127,7 @@ VIEWS.settings = function(){
   </div></div>
 
   <div class="card"><h2>接続</h2><div class="body">
-    <dl class="dl"><dt>モード</dt><dd>${DB.mode==='demo'?'デモ（保存されません）':'Supabase'}</dd>
-      <dt>AI文章生成</dt><dd>${CONFIG.aiEndpoint?'外部エンドポイント':'ローカル生成（根拠数値つき）'}</dd></dl>
+    <dl class="dl"><dt>モード</dt><dd>${DB.mode==='demo'?'デモ（保存されません）':'Supabase'}</dd></dl>
     <p class="hint" style="margin-bottom:0">HTMLファイル冒頭の CONFIG に Supabase の URL と anon key を設定すると本番モードになります。</p>
   </div></div>`;
 };
@@ -2465,7 +2136,7 @@ async function saveSettings(){
   SETDEF.forEach(([k])=>{ const v=+$('#st_'+k).value; if(!isNaN(v)) S.settings[k]=v; });
   await DB.saveSettings();
   await audit('update','app_settings','global',before,S.settings);
-  toast('設定を保存しました。候補を再生成すると反映されます。',3500); render();
+  refreshWatch(); toast('設定を保存しました。',2500); render();
 }
 async function resetSettings(){ S.settings={...DEFAULT_SETTINGS}; await DB.saveSettings(); toast('初期値に戻しました'); render(); }
 function addBlock(){
@@ -2487,7 +2158,7 @@ async function delBlock(id){ await DB.remove('offer_blocks',id); toast('解除�
 VIEWS.audit = function(){
   const logs=[...S.t.audit_logs].sort((a,b)=>a.created_at<b.created_at?1:-1).slice(0,300);
   const A={create:'作成',update:'更新',confirm:'確定',reopen:'下書きに戻す',delete:'削除',
-    send:'送付登録',result:'結果登録',import:'実績取込',generate:'候補生成',skip:'見送り'};
+    send:'送付登録',result:'結果登録',import:'実績取込'};
   return `<div class="card"><div class="body tight"><div class="scroll">
   ${logs.length?`<table class="t sticky-h"><thead><tr><th>日時</th><th>利用者</th><th>操作</th><th>対象</th><th>変更内容</th></tr></thead><tbody>
   ${logs.map(l=>`<tr><td class="w">${(l.created_at||'').replace('T',' ').slice(0,16)}</td>
@@ -2503,9 +2174,12 @@ function logout(){ S.me=null; $('#app').style.display='none'; showLogin(); }
 function showLogin(){
   $('#login').style.display='flex';
   $('#loginUser').innerHTML = S.t.users.map(u=>`<option value="${u.id}">${esc(u.name)}（${roleName(u.role)}）</option>`).join('');
-  $('#loginMode').innerHTML = DB.mode==='demo'
+  $('#loginMode').innerHTML = (DB.mode==='demo'
     ? '<span class="tag warn">デモモード</span> サンプルデータで動作します。保存はされません。'
-    : 'Supabaseに接続しています。';
+    : 'Supabaseに接続しています。')
+    + (DB.loadErrors.length
+      ? `<div class="alert" style="margin-top:12px;text-align:left">読み込めなかったデータがあります。<br>
+         ${DB.loadErrors.slice(0,4).map(esc).join('<br>')}</div>` : '');
 }
 $('#loginBtn').onclick = ()=>{
   S.me = byId(S.t.users, $('#loginUser').value);
@@ -2519,18 +2193,20 @@ $('#loginBtn').onclick = ()=>{
   try{
     await DB.init();
     await DB.loadAll();
-    rebuildStats();
-    const ym=d2s(TODAY).slice(0,7);
-    if(!S.t.ai_candidates.some(c=>c.ym===ym)){
-      S.me = S.t.users.find(u=>u.role==='admin') || S.t.users[0];
-      await generateCandidates();
-      S.me = null;
-    }
-    showLogin();
   }catch(e){
     console.error(e);
-    document.body.innerHTML='<div style="padding:40px;font-family:sans-serif">起動に失敗しました：'+esc(e.message)+'</div>';
+    document.body.innerHTML='<div style="padding:40px;font-family:sans-serif;line-height:1.8">'
+      +'<h2 style="margin:0 0 8px">データベースに接続できませんでした</h2>'
+      +esc(e.message)+'<p>CONFIG の supabaseUrl / supabaseAnonKey を確認してください。</p></div>';
+    return;
   }
+  rebuildStats();
+  refreshWatch();
+  if(!S.t.users.length){
+    S.t.users=[{id:'u-admin',name:'管理者',role:'admin',title:''}];
+    DB.loadErrors.push('利用者が1件も読み込めませんでした。RLSポリシーが未設定の可能性があります（migration_04.sql）。');
+  }
+  showLogin();
 })();
 </script>
 </body>
