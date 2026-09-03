@@ -802,7 +802,7 @@ function renderNav(){
   $('#me').innerHTML = `<b>${esc(S.me.name)}</b>${roleName(S.me.role)}<br>
     <button onclick="logout()">利用者を切り替える</button>`;
 }
-const roleName = r => ({admin:'管理者',sales:'営業',viewer:'閲覧者'}[r]||r);
+const roleName = r => ({admin:'管理者',sales:'営業',viewer:'閲覧者',approver:'営業'}[r]||r);
 
 function render(){
   S.route = parseHash();
@@ -2150,12 +2150,20 @@ VIEWS.settings = function(){
     </tbody></table>`:`<div class="empty">「今後この商品は提案しない」を登録するとここに並びます。</div>`}
     </div></div></div>
 
-  <div class="card"><h2>利用者</h2><div class="body tight"><div class="scroll">
-    <table class="t"><thead><tr><th>名前</th><th>権限</th><th>所属</th><th class="num">担当顧客</th></tr></thead><tbody>
-    ${S.t.users.map(u=>`<tr><td>${esc(u.name)}</td><td>${roleName(u.role)}</td><td>${esc(u.title||'')}</td>
-      <td class="num">${S.t.customers.filter(c=>c.sales_owner_id===u.id).length}</td></tr>`).join('')}
+  <div class="card"><h2>利用者<span class="r"><button class="btn sm" onclick="editUser()">利用者を追加</button></span></h2>
+    <div class="body tight"><div class="scroll">
+    <table class="t"><thead><tr><th>名前</th><th>権限</th><th>所属</th><th class="num">担当顧客</th><th></th></tr></thead><tbody>
+    ${S.t.users.map(u=>{
+      const n=S.t.customers.filter(c=>c.sales_owner_id===u.id).length;
+      return `<tr><td>${esc(u.name)}${u.id===S.me.id?' <span class="tag on">ログイン中</span>':''}</td>
+        <td>${roleName(u.role)}</td><td>${esc(u.title||'')}</td>
+        <td class="num">${n}</td>
+        <td class="w"><button class="btn sm ghost" onclick="editUser('${u.id}')">編集</button>
+          ${S.t.users.length>1&&u.id!==S.me.id?`<button class="btn sm danger" onclick="delUser('${u.id}')">削除</button>`:''}</td></tr>`;
+    }).join('')}
     </tbody></table></div>
-    <p class="hint" style="padding:10px 14px;margin:0">Supabase接続時は Supabase Auth と RLS で認証・権限を制御します。デモモードでは利用者を切り替えて挙動を確認できます。</p>
+    <p class="hint" style="padding:10px 14px;margin:0">権限は「管理者＝すべて操作可」「営業＝担当顧客のみ」「閲覧者＝閲覧のみ」です。
+      ログイン中の自分は削除できません。</p>
   </div></div>
 
   <div class="card"><h2>接続</h2><div class="body">
@@ -2171,6 +2179,49 @@ async function saveSettings(){
   refreshWatch(); toast('設定を保存しました。',2500); render();
 }
 async function resetSettings(){ S.settings={...DEFAULT_SETTINGS}; await DB.saveSettings(); toast('初期値に戻しました'); render(); }
+function editUser(id){
+  const u = id ? byId(S.t.users,id) : {name:'',role:'sales',title:''};
+  openModal(id?'利用者を編集':'利用者を追加',`
+    <label class="f"><span>名前</span><input type="text" id="eu_name" value="${esc(u.name)}" placeholder="山田 太郎"></label>
+    <div class="grid g2" style="gap:10px">
+      <label class="f"><span>権限</span><select id="eu_role">
+        ${[['admin','管理者'],['sales','営業'],['viewer','閲覧者']].map(([v,t])=>`<option value="${v}" ${u.role===v?'selected':''}>${t}</option>`).join('')}
+      </select></label>
+      <label class="f"><span>所属</span><input type="text" id="eu_title" value="${esc(u.title||'')}" placeholder="営業部"></label>
+    </div>`,
+    `<button class="btn ghost" onclick="closeModal()">キャンセル</button>
+     <button class="btn" onclick="saveUser(${id?`'${id}'`:'null'})">保存する</button>`);
+  $('#eu_name').focus();
+}
+async function saveUser(id){
+  const v={name:$('#eu_name').value.trim(), role:$('#eu_role').value, title:$('#eu_title').value.trim()};
+  if(!v.name){ toast('名前を入力してください'); return; }
+  if(id){
+    const before={...byId(S.t.users,id)};
+    await DB.update('users',id,v);
+    await audit('update','users',id,before,v);
+  }else{
+    const r=await DB.insert('users',{id:uid(),...v});
+    await audit('create','users',r.id,null,v);
+  }
+  closeModal(); toast('保存しました'); render();
+}
+async function delUser(id){
+  const u=byId(S.t.users,id);
+  const custs=S.t.customers.filter(c=>c.sales_owner_id===id);
+  const plans=S.t.offer_plans.filter(p=>p.created_by===id);
+  if(!confirm(`「${u.name}」を削除します。\n`
+    +(custs.length?`担当顧客 ${custs.length}件の担当営業は未設定になります。\n`:'')
+    +(plans.length?`作成したプラン ${plans.length}件は残りますが、作成者は空欄になります。\n`:'')
+    +`よろしいですか？`)) return;
+  for(const c of custs) await DB.update('customers',c.id,{sales_owner_id:null});
+  for(const p of plans) await DB.update('offer_plans',p.id,{created_by:null});
+  for(const d of S.t.offer_deliveries.filter(x=>x.sent_by===id)) await DB.update('offer_deliveries',d.id,{sent_by:null});
+  await DB.remove('users',id);
+  await audit('delete','users',id,{name:u.name},null);
+  toast('削除しました'); render();
+}
+
 function addBlock(){
   openModal('提案対象外を追加',`
     <label class="f"><span>顧客</span><select id="bk_c">${S.t.customers.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('')}</select></label>
