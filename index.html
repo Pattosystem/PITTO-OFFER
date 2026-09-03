@@ -303,6 +303,7 @@ TABLES.forEach(t=>S.t[t]=[]);
 const DB = {
   mode: (CONFIG.supabaseUrl && CONFIG.supabaseAnonKey) ? 'supabase' : 'demo',
   sb: null,
+  loadErrors: [],
 
   async init(){
     if(this.mode!=='supabase') return;
@@ -316,7 +317,7 @@ const DB = {
       let from=0, out=[];
       for(;;){
         const {data,error} = await this.sb.from(t).select('*').range(from,from+999);
-        if(error){ console.error(t,error); break; }
+        if(error){ console.error(t,error); this.loadErrors.push(t+'：'+error.message); break; }
         out = out.concat(data);
         if(data.length<1000) break;
         from += 1000;
@@ -373,11 +374,13 @@ function loadScript(src){
 
 /* 監査ログ（§8.5） */
 async function audit(action, entity_type, entity_id, before, after){
+  try{
   await DB.insert('audit_logs',{
     id:uid(), user_id:S.me?.id, user_name:S.me?.name, action, entity_type, entity_id,
     before_json:before?JSON.stringify(before):null, after_json:after?JSON.stringify(after):null,
     created_at:new Date().toISOString()
   });
+  }catch(e){ console.warn('監査ログの記録に失敗（処理は継続）',e); }
 }
 
 /* 権限（§3） */
