@@ -153,6 +153,7 @@ table.t .w{white-space:nowrap}
 /* chart */
 svg.chart{display:block;width:100%;height:auto}
 svg.chart text{font-size:10px;fill:var(--muted)}
+.sheet + .sheet{margin-top:26px;border-top:3px double var(--line)}
 
 /* proposal (印刷) */
 .sheet{background:#fff;border:1px solid var(--line);border-radius:var(--r);padding:34px 38px;max-width:820px;margin:0 auto;color:#101820}
@@ -169,6 +170,7 @@ svg.chart text{font-size:10px;fill:var(--muted)}
   body{background:#fff}
   main{padding:0}
   .sheet{border:none;border-radius:0;padding:0;max-width:none}
+  .sheet + .sheet{page-break-before:always}
   @page{size:A4;margin:16mm}
 }
 @media(max-width:820px){
@@ -1363,7 +1365,7 @@ VIEWS.planEdit = function(){
     <span class="tag">${PLAN_TYPE[plan.type]}</span>
     <span class="tag ${plan.status==='confirmed'?'on':''}">${STATUS_JA[plan.status]||plan.status}</span>
     <div class="sp"></div>
-    ${targets.length===1?`<button class="btn ghost" onclick="go('proposal',{id:'${targets[0].id}'})">提案書を見る</button>`:''}
+    <button class="btn ghost" onclick="go('proposal',{id:'${plan.id}'})">提案書を見る${targets.length>1?`（${targets.length}件）`:''}</button>
     ${!ro?`<button class="btn ghost" onclick="savePlan('${plan.id}')">下書きを保存</button>
       <button class="btn" onclick="confirmPlan('${plan.id}')">確定する</button>`:''}
     ${plan.status==='confirmed'?`<button class="btn ghost" onclick="reopenPlan('${plan.id}')">下書きに戻して編集</button>
@@ -1372,8 +1374,12 @@ VIEWS.planEdit = function(){
   </div>
 
   ${warns.length?`<div class="alert">${warns.map(esc).join('<br>')}</div>`:''}
-  ${plan.status==='confirmed'&&!targets.length?`<div class="alert ok">条件は確定しました。提案先が決まったら下の「顧客を選ぶ」から追加してください。追加すると送付管理に出ます。</div>`:''}
-  ${plan.status==='confirmed'&&targets.length?`<div class="alert ok">確定済みです。商品や価格を直すには「下書きに戻して編集」を押してください。送付済みの提案書の内容も変わるのでご注意ください。<br>提案先の追加・削除は確定したままできます。</div>`:''}
+  ${plan.status==='confirmed'&&!targets.length?`<div class="alert ok"><b>条件は確定しました。</b>
+    次は「顧客を選ぶ」で提案先を追加してください。追加すると顧客ごとの提案書ができ、送付管理に並びます。<br>
+    宛名を空欄にした下書きは、いまでも「提案書を見る」で確認・印刷できます。</div>`:''}
+  ${plan.status==='confirmed'&&targets.length?`<div class="alert ok"><b>確定済み・提案先${targets.length}件。</b>
+    「提案書を見る」で${targets.length>1?'全員分をまとめて':''}確認し、そのまま印刷できます。送付したら「送付管理へ」で記録してください。<br>
+    商品や価格を直すには「下書きに戻して編集」。提案先の追加・削除は確定したままできます。</div>`:''}
 
   <div class="grid g2">
     <div class="card"><h2>基本情報</h2><div class="body">
@@ -1539,7 +1545,10 @@ async function applyTargets(planId){
     await DB.insert('offer_targets',{id:uid(),offer_plan_id:planId,customer_id:cid,
       status:'unsent', qty: items[0]?.qty_from||null});
   }
-  closeModal(); toast('対象顧客を更新しました'); render();
+  closeModal();
+  const n=S.t.offer_targets.filter(t=>t.offer_plan_id===planId).length;
+  toast(n?`提案先を${n}件にしました。「提案書を見る」で確認できます。`:'提案先をすべて外しました。',4000);
+  render();
 }
 
 function pickByCondition(planId){
@@ -1603,8 +1612,8 @@ async function confirmPlan(id){
   if(warns.length && !confirm(warns.join('\n')+'\n\nこの条件で確定しますか？')) return;
   await DB.update('offer_plans',id,{status:'confirmed'});
   await audit('confirm','offer_plans',id,{status:plan.status},{status:'confirmed'});
-  toast(targets.length ? '確定しました。送付管理から提案書を送付できます。'
-                       : '確定しました。提案先が決まったら「顧客を選ぶ」から追加してください。',4000);
+  toast(targets.length ? `確定しました。「提案書を見る」で${targets.length}件分を印刷できます。`
+                       : '確定しました。提案先が決まったら「顧客を選ぶ」から追加してください。',4500);
   render();
 }
 async function reopenPlan(id){
@@ -1632,38 +1641,55 @@ async function deletePlan(id){
 }
 
 /* --- §8.6 提案書 --- */
+/* 提案書。ルートのIDは「提案先ID」でも「プランID」でもよい。
+   プランIDのときは対象顧客全員分を続けて出す（未定なら宛名なしの下書き）。 */
 VIEWS.proposal = function(){
-  const t = byId(S.t.offer_targets, S.route.params.id);
-  if(!t) return `<div class="empty"><b>提案書が見つかりません</b></div>`;
-  const plan=byId(S.t.offer_plans,t.offer_plan_id);
-  const cu=byId(S.t.customers,t.customer_id);
-  const items=S.t.offer_plan_items.filter(i=>i.offer_plan_id===plan.id).sort((a,b)=>(a.qty_from||0)-(b.qty_from||0));
-  const body = plan.comment_text || genCustomerComment(plan,items,cu);
-  const lead = items.map(i=>i.product_id?byId(S.t.products,i.product_id)?.lead_time:null).find(Boolean);
+  const id = S.route.params.id;
+  const t0 = byId(S.t.offer_targets, id);
+  const plan = t0 ? byId(S.t.offer_plans, t0.offer_plan_id) : byId(S.t.offer_plans, id);
+  if(!plan) return `<div class="empty"><b>提案書が見つかりません</b><button class="link" onclick="go('plans')">プラン一覧へ</button></div>`;
 
-  return `<div class="bar noprint"><button class="btn sm ghost" onclick="go('planEdit',{id:'${plan.id}'})">← プランへ戻る</button>
+  const items = S.t.offer_plan_items.filter(i=>i.offer_plan_id===plan.id).sort((a,b)=>(a.qty_from||0)-(b.qty_from||0));
+  const targets = t0 ? [t0] : S.t.offer_targets.filter(x=>x.offer_plan_id===plan.id);
+  const sheets = targets.length ? targets : [null];   // 宛先未定でも下書きを表示する
+
+  return `<div class="bar noprint">
+    <button class="btn sm ghost" onclick="go('planEdit',{id:'${plan.id}'})">← プランへ戻る</button>
+    ${!t0&&targets.length>1?`<span class="tag">${targets.length}件分をまとめて表示</span>`:''}
+    ${!targets.length?`<span class="tag warn">宛先未定の下書き</span>`:''}
     <div class="sp"></div>
     <button class="btn" onclick="window.print()">PDFとして保存 / 印刷</button>
-    <button class="btn ghost" onclick="copyMailText('${t.id}')">メール本文をコピー</button></div>
-  <div class="sheet">
+    ${t0?`<button class="btn ghost" onclick="copyMailText('${t0.id}')">メール本文をコピー</button>`:''}
+    ${!targets.length&&CAN.edit()?`<button class="btn ghost" onclick="pickTargets('${plan.id}')">顧客を選ぶ</button>`:''}
+  </div>
+  ${!targets.length?`<div class="alert noprint">まだ提案先が決まっていないため、宛名を空欄にした下書きを表示しています。
+    「顧客を選ぶ」で追加すると、顧客ごとの提案書になります。</div>`:''}
+  ${sheets.map(t=>proposalSheet(plan, items, t)).join('')}`;
+};
+
+function proposalSheet(plan, items, t){
+  const cu = t ? byId(S.t.customers, t.customer_id) : null;
+  const body = plan.comment_text || genCustomerComment(plan, items, cu);
+  const lead = items.map(i=>i.product_id?byId(S.t.products,i.product_id)?.lead_time:null).find(Boolean);
+  const showList = items.some(i=>i.list_price);
+  return `<div class="sheet">
     <div style="display:flex;align-items:flex-start">
       <div><h2 class="title">${TODAY.getFullYear()}年${TODAY.getMonth()+1}月 特別ご提案</h2>
         <div class="note">提案番号：${esc(plan.id.slice(0,8).toUpperCase())}</div></div>
       <div style="margin-left:auto;text-align:right" class="note">${d2s(TODAY)}<br><b style="font-size:14px">${esc(CONFIG.company.name)}</b></div>
     </div>
-    <div class="to">${esc(cu.name)} 御中</div>
+    <div class="to">${cu?esc(cu.name)+' 御中':'<span style="color:#8894A0">＿＿＿＿＿＿＿＿＿＿ 御中</span>'}</div>
     <div class="lead">${esc(body)}</div>
-    ${(()=>{ const showList = items.some(i=>i.list_price);
-      return `<table class="p"><thead><tr><th>商品名</th><th>ご提案数量</th>${showList?'<th>通常価格</th>':''}<th>特別価格</th><th>ご提案金額</th></tr></thead><tbody>
+    <table class="p"><thead><tr><th>商品名</th><th>ご提案数量</th>${showList?'<th>通常価格</th>':''}<th>特別価格</th><th>ご提案金額</th></tr></thead><tbody>
     ${items.map(i=>{
       const info=itemInfo(i);
-      const q=i.qty_from||0;
+      const q=(t&&t.qty)||i.qty_from||0;
       return `<tr><td>${esc(info.name)}</td>
         <td>${num(i.qty_from)}${i.qty_to?`〜${num(i.qty_to)}`:'以上'}${esc(info.unit)}</td>
         ${showList?`<td style="text-align:right">${yen(i.list_price)}</td>`:''}
         <td style="text-align:right"><b>${yen(i.offer_price)}</b></td>
         <td style="text-align:right">${i.offer_price?yen(i.offer_price*q)+'〜':'—'}</td></tr>`;
-    }).join('')}</tbody></table>`; })()}
+    }).join('')}</tbody></table>
     <table class="p"><tbody>
       <tr><th style="width:130px">有効期限</th><td>${plan.end_date?jdate(plan.end_date):'—'}</td></tr>
       <tr><th>納期目安</th><td>${esc(plan.lead_time||lead||'ご発注後にご案内いたします')}</td></tr>
@@ -1672,10 +1698,10 @@ VIEWS.proposal = function(){
     <div class="foot">
       <b>${esc(CONFIG.company.name)} ${esc(CONFIG.company.dept)}</b><br>
       ${esc(CONFIG.company.addr)}<br>
-      担当：${esc(userName(cu.sales_owner_id))}　TEL：${esc(CONFIG.company.tel)}　E-mail：${esc(CONFIG.company.email)}
+      担当：${cu?esc(userName(cu.sales_owner_id)):esc(S.me.name)}　TEL：${esc(CONFIG.company.tel)}　E-mail：${esc(CONFIG.company.email)}
     </div>
   </div>`;
-};
+}
 function copyMailText(tid){
   const t=byId(S.t.offer_targets,tid), plan=byId(S.t.offer_plans,t.offer_plan_id), cu=byId(S.t.customers,t.customer_id);
   const items=S.t.offer_plan_items.filter(i=>i.offer_plan_id===plan.id);
