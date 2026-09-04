@@ -731,6 +731,23 @@ function genCustomerComment(plan, items, customer){
   return `${head}\n\n${mid}\n\n${tail}`;
 }
 
+/* 一覧の並び順：アルファベットの商品を先にA→Z、そのあと日本語名を五十音順 */
+function nameGroup(s){
+  const c=String(s||'').trim().charAt(0);
+  return /[A-Za-z0-9]/.test(c) ? 0 : 1;
+}
+function byName(a,b){
+  const ga=nameGroup(a), gb=nameGroup(b);
+  if(ga!==gb) return ga-gb;
+  return String(a).localeCompare(String(b),'ja',{numeric:true,sensitivity:'base'});
+}
+function sortedProducts(activeOnly){
+  return S.t.products.filter(p=>!activeOnly||p.active_flag).slice().sort((a,b)=>byName(a.name,b.name));
+}
+function sortedCustomers(list){
+  return (list||S.t.customers).slice().sort((a,b)=>byName(a.name,b.name));
+}
+
 function unitOf(p){
   if(p && p.unit) return p.unit;
   if(/Thread|スレッド/i.test(p?.category||'')) return '本';
@@ -992,9 +1009,11 @@ VIEWS.watch = function(){
       <label class="f" style="margin:0"><span>担当営業</span><select onchange="WF.owner=this.value;render()">
         <option value="">すべて</option>${S.t.users.filter(u=>u.role==='sales').map(u=>`<option value="${u.id}" ${WF.owner===u.id?'selected':''}>${esc(u.name)}</option>`).join('')}</select></label>
       <label class="f" style="margin:0"><span>都道府県</span><select onchange="WF.pref=this.value;render()">
-        <option value="">すべて</option>${[...new Set(S.t.customers.map(c=>c.pref).filter(Boolean))].map(p=>`<option ${WF.pref===p?'selected':''}>${esc(p)}</option>`).join('')}</select></label>
-      <label class="f" style="margin:0"><span>商品</span><select onchange="WF.product=this.value;render()">
-        <option value="">すべて</option>${S.t.products.map(p=>`<option value="${p.id}" ${WF.product===p.id?'selected':''}>${esc(p.name)}</option>`).join('')}</select></label>
+        <option value="">すべて</option>${[...new Set(S.t.customers.map(c=>c.pref).filter(Boolean))].sort((a,b)=>byName(a,b)).map(p=>`<option ${WF.pref===p?'selected':''}>${esc(p)}</option>`).join('')}</select></label>
+      <label class="f" style="margin:0"><span>商品</span>
+        <input type="text" list="watchProdList" value="${esc(WF.product?prodName(WF.product):'')}"
+               placeholder="入力して絞り込み（空欄＝すべて）" onchange="setWatchProduct(this.value)">
+        <datalist id="watchProdList">${sortedProducts().map(p=>`<option value="${esc(p.name)}">`).join('')}</datalist></label>
       <label class="f" style="margin:0"><span>施設名で検索</span><input type="text" value="${esc(WF.q)}" oninput="WF.q=this.value;render()"></label>
     </div>
   </div></div>
@@ -1002,6 +1021,15 @@ VIEWS.watch = function(){
   <div class="bar"><b>${list.length} 件</b><span class="hint">直近12ヶ月の取引金額が大きい順</span></div>
   <div class="card"><div class="body tight"><div class="scroll">${watchTable(list)}</div></div></div>`;
 };
+
+function setWatchProduct(v){
+  const name=String(v||'').trim();
+  if(!name){ WF.product=''; render(); return; }
+  const p=S.t.products.find(x=>pkey(x.name)===pkey(name))
+       || S.t.products.filter(x=>x.name.includes(name))[0];
+  if(!p){ toast('該当する商品がありません'); return; }
+  WF.product=p.id; render();
+}
 
 function watchTable(list){
   if(!list.length) return `<div class="empty"><b>該当する先はありません</b>実績を取り込むか、条件を変えてください。</div>`;
@@ -1036,10 +1064,10 @@ function watchTable(list){
 /* ============================ 顧客 §8.3 ============================== */
 const CUF={q:'',owner:'',rank:''};
 VIEWS.customers = function(){
-  const list = S.t.customers.filter(c=>mine(c))
+  const list = sortedCustomers(S.t.customers.filter(c=>mine(c))
     .filter(c=>(!CUF.q||c.name.includes(CUF.q)||String(c.member_id).includes(CUF.q)))
     .filter(c=>!CUF.owner||c.sales_owner_id===CUF.owner)
-    .filter(c=>!CUF.rank||c.rank===CUF.rank);
+    .filter(c=>!CUF.rank||c.rank===CUF.rank));
   return `<div class="card"><div class="body">
     <div class="grid g3" style="gap:10px">
       <label class="f" style="margin:0"><span>検索</span><input type="text" value="${esc(CUF.q)}" oninput="CUF.q=this.value;render()" placeholder="施設名 / 顧客ID"></label>
@@ -1072,7 +1100,8 @@ VIEWS.customer = function(){
   const cs = S.custStats.get(c.id);
   const ms = lastMonths(12);
   const amt = ms.map(m=>cs?.months.get(m)?.amount||0);
-  const prods = [...S.stats.values()].filter(s=>s.customer_id===c.id);
+  const prods = [...S.stats.values()].filter(s=>s.customer_id===c.id)
+    .sort((a,b)=>byName(prodName(a.product_id), prodName(b.product_id)));
   const watch = watchRows().filter(x=>x.customer_id===c.id);
   const targets = S.t.offer_targets.filter(t=>t.customer_id===c.id);
 
@@ -1188,12 +1217,20 @@ async function saveCustomer(id){
 }
 
 /* ============================ 商品 §4.2 ============================== */
+const PF={q:''};
 VIEWS.products = function(){
-  return `<div class="bar">${CAN.master()?`<button class="btn" onclick="editProduct()">商品を追加</button>`:''}</div>
+  const list = sortedProducts().filter(p=>!PF.q
+    || p.name.includes(PF.q) || String(p.sku||'').toUpperCase().includes(PF.q.toUpperCase())
+    || String(p.category||'').includes(PF.q));
+  return `<div class="bar">
+    ${CAN.master()?`<button class="btn" onclick="editProduct()">商品を追加</button>`:''}
+    <input type="text" value="${esc(PF.q)}" oninput="PF.q=this.value;render()"
+      placeholder="商品名・管理番号・カテゴリで検索" style="max-width:340px">
+    <span class="hint">${list.length} 件</span></div>
   <div class="card"><div class="body tight"><div class="scroll">
   <table class="t sticky-h"><thead><tr><th>管理番号</th><th>商品名</th><th>カテゴリ</th><th>単位</th><th class="num">通常価格</th>
     <th class="num">最低提案価格</th><th class="num">原価</th><th class="num">粗利率</th><th>納期</th><th>グループ</th><th>提案可否</th><th></th></tr></thead><tbody>
-  ${S.t.products.map(p=>`<tr>
+  ${list.map(p=>`<tr>
     <td class="w">${esc(p.sku||'—')}</td><td>${esc(p.name)}</td><td class="w">${esc(p.category)}</td><td class="w">${esc(p.unit||'—')}</td>
     <td class="num">${p.list_price?yen(p.list_price):'<span class="tag warn">未設定</span>'}</td>
     <td class="num">${yen(p.floor_price)}</td><td class="num">${p.cost?yen(p.cost):'<span class="tag warn">未設定</span>'}</td>
@@ -1379,7 +1416,7 @@ VIEWS.planEdit = function(){
         <td class="num">${mr!=null?`<span class="${bad?'tag warn':''}">${pct(mr,1)}</span>`:'<span class="hint">—</span>'}</td>
         <td>${ro?'':`<button class="btn sm danger" onclick="delItem('${i.id}')">削除</button>`}</td></tr>`;
     }).join('')}</tbody></table>
-    <datalist id="prodList">${S.t.products.filter(p=>p.active_flag).map(p=>`<option value="${esc(p.name)}">`).join('')}</datalist>
+    <datalist id="prodList">${sortedProducts(true).map(p=>`<option value="${esc(p.name)}">`).join('')}</datalist>
     <p class="hint" style="padding:8px 14px;margin:0">商品名はそのまま入力できます。商品マスタと同じ名称にすると原価と粗利率が出ます。</p>`
     :`<div class="empty"><b>商品が未入力です</b>${ro?'':'「商品を追加」から商品名と条件を入力してください。'}</div>`}
     </div></div></div>
@@ -1445,7 +1482,7 @@ async function addItemRow(planId){
   openModal('商品を追加',`
     <label class="f"><span>商品名</span>
       <input type="text" id="ai_name" list="prodListModal" placeholder="そのまま入力できます" autocomplete="off">
-      <datalist id="prodListModal">${S.t.products.filter(p=>p.active_flag).map(p=>`<option value="${esc(p.name)}">`).join('')}</datalist>
+      <datalist id="prodListModal">${sortedProducts(true).map(p=>`<option value="${esc(p.name)}">`).join('')}</datalist>
       <small class="hint">商品マスタにある名称を入れると、単位・通常価格・原価が自動で入ります。</small></label>
     <div class="grid g4" style="gap:10px">
       <label class="f"><span>単位</span><input type="text" id="ai_unit" value="箱"></label>
@@ -1479,7 +1516,7 @@ async function doAddItem(planId){
 function pickTargets(planId){
   const plan=byId(S.t.offer_plans,planId);
   const cur=new Set(S.t.offer_targets.filter(t=>t.offer_plan_id===planId).map(t=>t.customer_id));
-  const list=S.t.customers.filter(c=>c.offerable&&mine(c));
+  const list=sortedCustomers(S.t.customers.filter(c=>c.offerable&&mine(c)));
   openModal('顧客を選ぶ',`
     <p class="hint">${plan.type==='individual'?'個別対応プランは1顧客が対象です。':'複数選択できます。提案停止の顧客は表示されません。'}</p>
     <input type="text" placeholder="施設名で絞り込み" oninput="filterPick(this.value)" style="margin-bottom:10px">
@@ -2226,8 +2263,8 @@ async function delUser(id){
 
 function addBlock(){
   openModal('提案対象外を追加',`
-    <label class="f"><span>顧客</span><select id="bk_c">${S.t.customers.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('')}</select></label>
-    <label class="f"><span>商品</span><select id="bk_p">${S.t.products.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></label>
+    <label class="f"><span>顧客</span><select id="bk_c">${sortedCustomers().map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('')}</select></label>
+    <label class="f"><span>商品</span><select id="bk_p">${sortedProducts().map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></label>
     <label class="f"><span>理由</span><input type="text" id="bk_r" placeholder="使用中止 など"></label>
     <label class="f"><span>期限（空欄で無期限）</span><input type="date" id="bk_u"></label>`,
     `<button class="btn ghost" onclick="closeModal()">キャンセル</button><button class="btn" onclick="doAddBlock()">追加する</button>`);
