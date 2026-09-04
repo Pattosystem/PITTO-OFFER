@@ -230,9 +230,9 @@ const CONFIG = {
   company: {
     name:'リアス株式会社',
     dept:'営業部',
-    tel:'06-0000-0000',        // ← 提案書に出ます。差し替えてください
-    email:'info@example.co.jp', // ← 同上
-    addr:'大阪府大阪市西区'      // ← 同上
+    tel:'06-0000-0000',
+    email:'info@example.co.jp',
+    addr:'大阪府大阪市西区'
   }
 };
 
@@ -248,8 +248,12 @@ const DEFAULT_SETTINGS = {
   import_line_types:['商品'],
   exclude_status:[],
   exclude_negative:true,
-  owner_map:{}
+  owner_map:{},
+  company:null              // 自社情報。設定画面で入れると CONFIG より優先される
 };
+
+/* 提案書に出す自社情報。設定画面の値があればそちらを使う */
+function CO(){ return {...CONFIG.company, ...(S.settings.company||{})}; }
 
 /* ---- 3. ユーティリティ ------------------------------------------------ */
 const $  = (s,r=document)=>r.querySelector(s);
@@ -725,7 +729,8 @@ function shortHistory(){
 /* 顧客向けコメント（提案書本文・編集可） */
 function genCustomerComment(plan, items, customer){
   const names = [...new Set((items||[]).map(i=>i.product_name || byId(S.t.products,i.product_id)?.name).filter(Boolean))];
-  const head = `いつも大変お世話になっております。${CONFIG.company.name}${CONFIG.company.dept}でございます。`;
+  const co=CO();
+  const head = `いつも大変お世話になっております。${co.name}${co.dept}でございます。`;
   const mid  = names.length
     ? `${names.slice(0,3).join('、')}${names.length>3?' ほか':''}につきまして、今回に限り下記条件でご提供が可能となりました。`
     : `下記の条件でご提案申し上げます。`;
@@ -829,7 +834,10 @@ function render(){
   $('#pageTitle').textContent = TITLES[S.route.name]||'';
   $('#pageSub').innerHTML = `${DB.mode==='demo'?'<span class="tag warn">デモモード（保存されません）</span> ':''}${d2s(TODAY)}`;
   renderNav();
-  $('#view').innerHTML = v();
+  $('#view').innerHTML = (DB.loadErrors.length
+    ? `<div class="alert">データの一部を読み込めませんでした。表示が欠けている可能性があります。<br>
+        ${DB.loadErrors.slice(0,4).map(esc).join('<br>')}
+        <br><button class="link" onclick="location.reload()">再読み込み</button></div>` : '') + v();
   window.scrollTo(0,0);
   if(typeof v.after==='function') v.after();
 }
@@ -1668,6 +1676,7 @@ VIEWS.proposal = function(){
 };
 
 function proposalSheet(plan, items, t){
+  const co = CO();
   const cu = t ? byId(S.t.customers, t.customer_id) : null;
   const body = plan.comment_text || genCustomerComment(plan, items, cu);
   const lead = items.map(i=>i.product_id?byId(S.t.products,i.product_id)?.lead_time:null).find(Boolean);
@@ -1676,7 +1685,7 @@ function proposalSheet(plan, items, t){
     <div style="display:flex;align-items:flex-start">
       <div><h2 class="title">${TODAY.getFullYear()}年${TODAY.getMonth()+1}月 特別ご提案</h2>
         <div class="note">提案番号：${esc(plan.id.slice(0,8).toUpperCase())}</div></div>
-      <div style="margin-left:auto;text-align:right" class="note">${d2s(TODAY)}<br><b style="font-size:14px">${esc(CONFIG.company.name)}</b></div>
+      <div style="margin-left:auto;text-align:right" class="note">${d2s(TODAY)}<br><b style="font-size:14px">${esc(co.name)}</b></div>
     </div>
     <div class="to">${cu?esc(cu.name)+' 御中':'<span style="color:#8894A0">＿＿＿＿＿＿＿＿＿＿ 御中</span>'}</div>
     <div class="lead">${esc(body)}</div>
@@ -1696,9 +1705,9 @@ function proposalSheet(plan, items, t){
       <tr><th>注意事項</th><td class="note">${esc(plan.note_text||'輸入商品のため、在庫状況により納期が変動する場合がございます。ご発注後のキャンセル・返品はお受けできません。')}</td></tr>
     </tbody></table>
     <div class="foot">
-      <b>${esc(CONFIG.company.name)} ${esc(CONFIG.company.dept)}</b><br>
-      ${esc(CONFIG.company.addr)}<br>
-      担当：${cu?esc(userName(cu.sales_owner_id)):esc(S.me.name)}　TEL：${esc(CONFIG.company.tel)}　E-mail：${esc(CONFIG.company.email)}
+      <b>${esc(co.name)}${co.dept?' '+esc(co.dept):''}</b><br>
+      ${co.addr?esc(co.addr)+'<br>':''}
+      担当：${cu?esc(userName(cu.sales_owner_id)):esc(S.me.name)}${co.tel?'　TEL：'+esc(co.tel):''}${co.email?'　E-mail：'+esc(co.email):''}
     </div>
   </div>`;
 }
@@ -1709,8 +1718,8 @@ function copyMailText(tid){
     ...items.map(i=>{const info=itemInfo(i);
       return `・${info.name}　${num(i.qty_from)}${i.qty_to?'〜'+num(i.qty_to):'以上'}${info.unit}　${yen(i.offer_price)}${i.list_price?`（通常 ${yen(i.list_price)}）`:''}`;}),
     '',`有効期限：${plan.end_date?jdate(plan.end_date):'—'}`,`納期目安：${plan.lead_time||'ご発注後にご案内いたします'}`,'',
-    `${CONFIG.company.name} ${CONFIG.company.dept}　${userName(cu.sales_owner_id)}`,
-    `TEL ${CONFIG.company.tel} / ${CONFIG.company.email}`];
+    `${CO().name} ${CO().dept}　${userName(cu.sales_owner_id)}`,
+    `TEL ${CO().tel} / ${CO().email}`];
   navigator.clipboard.writeText(lines.join('\n')).then(()=>toast('メール本文をコピーしました'),()=>toast('コピーできませんでした'));
 }
 
@@ -2206,6 +2215,19 @@ VIEWS.settings = function(){
     </div>
   </div></div>
 
+  <div class="card"><h2>自社情報（提案書に印刷されます）<span class="r">
+    <button class="btn sm" onclick="saveCompany()">保存する</button></span></h2><div class="body">
+    <div class="grid g2" style="gap:10px">
+      <label class="f" style="margin:0"><span>会社名</span><input type="text" id="co_name" value="${esc(CO().name||'')}"></label>
+      <label class="f" style="margin:0"><span>部署名</span><input type="text" id="co_dept" value="${esc(CO().dept||'')}" placeholder="営業部"></label>
+      <label class="f" style="margin:0"><span>電話番号</span><input type="text" id="co_tel" value="${esc(CO().tel||'')}"></label>
+      <label class="f" style="margin:0"><span>メールアドレス</span><input type="text" id="co_email" value="${esc(CO().email||'')}"></label>
+    </div>
+    <label class="f" style="margin:10px 0 0"><span>住所</span><input type="text" id="co_addr" value="${esc(CO().addr||'')}"></label>
+    <p class="hint" style="margin:10px 0 0">提案書の右上（会社名）とフッター（会社名・住所・TEL・メール）に出ます。
+      担当者名は顧客の担当営業が入ります。空欄にした項目は印刷されません。</p>
+  </div></div>
+
   <div class="card"><h2>提案対象外の設定<span class="r"><button class="btn sm ghost" onclick="addBlock()">追加</button></span></h2>
     <div class="body tight"><div class="scroll">
     ${S.t.offer_blocks.length?`<table class="t"><thead><tr><th>顧客</th><th>商品</th><th>理由</th><th>期限</th><th></th></tr></thead><tbody>
@@ -2244,6 +2266,18 @@ async function saveSettings(){
   refreshWatch(); toast('設定を保存しました。',2500); render();
 }
 async function resetSettings(){ S.settings={...DEFAULT_SETTINGS}; await DB.saveSettings(); toast('初期値に戻しました'); render(); }
+async function saveCompany(){
+  const before={...CO()};
+  S.settings.company={
+    name:$('#co_name').value.trim(), dept:$('#co_dept').value.trim(),
+    tel:$('#co_tel').value.trim(), email:$('#co_email').value.trim(),
+    addr:$('#co_addr').value.trim()
+  };
+  await DB.saveSettings();
+  await audit('update','app_settings','company',before,S.settings.company);
+  toast('自社情報を保存しました。提案書に反映されます。',3000); render();
+}
+
 function editUser(id){
   const u = id ? byId(S.t.users,id) : {name:'',role:'sales',title:''};
   openModal(id?'利用者を編集':'利用者を追加',`
