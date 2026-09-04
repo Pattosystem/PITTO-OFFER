@@ -783,6 +783,7 @@ const NAV = [
   {k:'dashboard', t:'ダッシュボード'},
   {k:'watch',     t:'注文の動き',  badge:()=>countWatch()},
   {k:'plans',     t:'提案プラン',  badge:()=>S.t.offer_plans.filter(p=>p.status==='draft').length},
+  {k:'progress',  t:'提案の進捗',  badge:()=>countProgress()},
   {k:'delivery',  t:'送付・結果',  badge:()=>countTodo()},
   {g:'データ'},
   {k:'customers', t:'顧客'},
@@ -794,11 +795,18 @@ const NAV = [
   {k:'audit',     t:'監査ログ'}
 ];
 const TITLES = {dashboard:'ダッシュボード',watch:'注文の動き',plans:'提案プラン',
-  planEdit:'プラン作成 / 編集',delivery:'送付・結果管理',customers:'顧客',
+  planEdit:'プラン作成 / 編集',progress:'提案の進捗',delivery:'送付・結果管理',customers:'顧客',
   customer:'顧客詳細',products:'商品マスタ',import:'購入実績取込',reports:'レポート / KPI',
   settings:'設定',audit:'監査ログ',proposal:'提案書'};
 
 function countWatch(){ return watchRows().filter(r=>mine(byId(S.t.customers,r.customer_id))).length; }
+/* 進行中（結果がまだ全部そろっていない）プランの数 */
+function countProgress(){
+  return S.t.offer_plans.filter(p=>['confirmed','expired'].includes(p.status)).filter(p=>{
+    const ts=S.t.offer_targets.filter(t=>t.offer_plan_id===p.id && mine(byId(S.t.customers,t.customer_id)));
+    return ts.length && ts.some(t=>!S.t.offer_results.some(r=>r.offer_target_id===t.id));
+  }).length;
+}
 function countTodo(){
   return S.t.offer_targets.filter(t=>{
     const plan=byId(S.t.offer_plans,t.offer_plan_id);
@@ -955,6 +963,7 @@ VIEWS.dashboard = function(){
     <div class="card"><h2>次にやること</h2><div class="body">
       <div class="bar">
         <button class="btn" onclick="go('watch')">注文の動きを見る</button>
+        <button class="btn ghost" onclick="go('progress')">提案の進捗を見る</button>
         <button class="btn ghost" onclick="newPlan('routine')">定例プランを作成</button>
         <button class="btn ghost" onclick="newPlan('individual')">個別プランを作成</button>
         ${CAN.import()?`<button class="btn ghost" onclick="go('import')">購入実績を取り込む</button>`:''}
@@ -1377,7 +1386,7 @@ VIEWS.planEdit = function(){
     ${!ro?`<button class="btn ghost" onclick="savePlan('${plan.id}')">下書きを保存</button>
       <button class="btn" onclick="confirmPlan('${plan.id}')">確定する</button>`:''}
     ${plan.status==='confirmed'?`<button class="btn ghost" onclick="reopenPlan('${plan.id}')">下書きに戻して編集</button>
-      <button class="btn" onclick="go('delivery')">送付管理へ</button>`:''}
+      <button class="btn" onclick="go('progress')">進捗を見る</button>`:''}
     ${CAN.edit()?`<button class="btn danger" onclick="deletePlan('${plan.id}')">プランを削除</button>`:''}
   </div>
 
@@ -1386,7 +1395,7 @@ VIEWS.planEdit = function(){
     次は「顧客を選ぶ」で提案先を追加してください。追加すると顧客ごとの提案書ができ、送付管理に並びます。<br>
     宛名を空欄にした下書きは、いまでも「提案書を見る」で確認・印刷できます。</div>`:''}
   ${plan.status==='confirmed'&&targets.length?`<div class="alert ok"><b>確定済み・提案先${targets.length}件。</b>
-    「提案書を見る」で${targets.length>1?'全員分をまとめて':''}確認し、そのまま印刷できます。送付したら「送付管理へ」で記録してください。<br>
+    「提案書を見る」で${targets.length>1?'全員分をまとめて':''}確認し、そのまま印刷できます。送付したら「進捗を見る」で送付日と結果を記録してください。<br>
     商品や価格を直すには「下書きに戻して編集」。提案先の追加・削除は確定したままできます。</div>`:''}
 
   <div class="grid g2">
@@ -1810,6 +1819,147 @@ async function doResult(tid){
   await audit('result','offer_targets',tid,cur||null,row);
   closeModal(); toast('結果を登録しました'); render();
 }
+
+/* ============================ 提案の進捗 ============================
+   プラン単位で「いつ送って、どうなったか」を追う画面。
+   送付日・経過日数・結果をまとめて見て、その場で登録もできる。      */
+const PGF = {mode:'active', owner:'', q:''};
+
+function planProgress(plan){
+  const targets = S.t.offer_targets.filter(t=>t.offer_plan_id===plan.id);
+  const rows = targets.map(t=>{
+    const cu = byId(S.t.customers, t.customer_id);
+    const d  = S.t.offer_deliveries.find(x=>x.offer_target_id===t.id);
+    const r  = S.t.offer_results.find(x=>x.offer_target_id===t.id);
+    return {t, cu, d, r,
+      amount: targetAmount(t),
+      won: r && ['won','partial'].includes(r.result_code),
+      waiting: !!d && !r,
+      waitDays: d ? days(TODAY, d.sent_at) : null};
+  }).filter(x=>x.cu && mine(x.cu));
+  const sent = rows.filter(x=>x.d);
+  const done = rows.filter(x=>x.r);
+  const won  = rows.filter(x=>x.won);
+  const left = plan.end_date ? days(s2d(plan.end_date), TODAY) : null;
+  const firstSent = sent.map(x=>x.d.sent_at).sort()[0] || null;
+  const lastSent  = sent.map(x=>x.d.sent_at).sort().slice(-1)[0] || null;
+  return {plan, rows, sent, done, won, left, firstSent, lastSent,
+    unsent: rows.length - sent.length,
+    waiting: rows.filter(x=>x.waiting).length,
+    expect: sum(sent.map(x=>x.amount)),
+    gotten: sum(won.map(x=>x.r.amount||0)),
+    finished: rows.length>0 && done.length===rows.length};
+}
+
+VIEWS.progress = function(){
+  const all = S.t.offer_plans
+    .filter(p=>['confirmed','expired'].includes(p.status))
+    .map(planProgress)
+    .filter(g=>g.rows.length);
+  const list = all
+    .filter(g=>PGF.mode==='all' ? true : PGF.mode==='done' ? g.finished : !g.finished)
+    .filter(g=>!PGF.q || g.plan.title.includes(PGF.q) || g.rows.some(x=>x.cu.name.includes(PGF.q)))
+    .filter(g=>!PGF.owner || g.rows.some(x=>x.cu.sales_owner_id===PGF.owner))
+    .sort((a,b)=>(b.plan.start_date||'')<(a.plan.start_date||'')?-1:1);
+
+  const tot = {
+    targets: sum(all.map(g=>g.rows.length)),
+    sent:    sum(all.map(g=>g.sent.length)),
+    won:     sum(all.map(g=>g.won.length)),
+    expect:  sum(all.map(g=>g.expect)),
+    gotten:  sum(all.map(g=>g.gotten))
+  };
+
+  return `
+  <div class="grid g4">
+    <div class="card"><div class="kpi"><div class="l">提案した件数</div><div class="n">${num(tot.sent)}</div>
+      <div class="d">提案先 ${num(tot.targets)}件のうち</div></div></div>
+    <div class="card"><div class="kpi"><div class="l">受注</div><div class="n">${num(tot.won)}</div>
+      <div class="d">受注率 ${tot.sent?pct(tot.won/tot.sent,0):'—'}</div></div></div>
+    <div class="card"><div class="kpi"><div class="l">提案金額</div><div class="n">${yen(tot.expect)}</div>
+      <div class="d">送付済みの合計</div></div></div>
+    <div class="card"><div class="kpi"><div class="l">受注金額</div><div class="n">${yen(tot.gotten)}</div>
+      <div class="d">結果登録済みの合計</div></div></div>
+  </div>
+
+  <div class="bar">
+    ${[['active','進行中'],['done','完了'],['all','すべて']].map(([k,t])=>
+      `<button class="btn sm ${PGF.mode===k?'':'ghost'}" onclick="PGF.mode='${k}';render()">${t}</button>`).join('')}
+    <div class="sp"></div>
+    <select style="max-width:180px" onchange="PGF.owner=this.value;render()">
+      <option value="">担当営業すべて</option>
+      ${S.t.users.filter(u=>u.role==='sales').map(u=>`<option value="${u.id}" ${PGF.owner===u.id?'selected':''}>${esc(u.name)}</option>`).join('')}
+    </select>
+    <input type="text" value="${esc(PGF.q)}" oninput="PGF.q=this.value;render()"
+      placeholder="プラン名・施設名で検索" style="max-width:280px">
+  </div>
+
+  ${list.length ? list.map(progressCard).join('')
+    : `<div class="card"><div class="empty"><b>該当する提案がありません</b>
+        プランを確定して提案先を追加すると、ここに進捗が並びます。</div></div>`}`;
+};
+
+function progressCard(g){
+  const p = g.plan;
+  const bar = [
+    ['未送付', g.unsent, 'var(--line-strong)'],
+    ['返信待ち', g.waiting, 'var(--sig-a)'],
+    ['結果あり', g.done.length, 'var(--accent)']
+  ];
+  const total = Math.max(1, g.rows.length);
+  return `
+  <div class="card"><h2>
+    <button class="link" style="font-size:14px;font-weight:700" onclick="go('planEdit',{id:'${p.id}'})">${esc(p.title)}</button>
+    <span class="tag">${PLAN_TYPE[p.type]}</span>
+    ${g.finished?'<span class="tag on">完了</span>'
+      :g.left!=null&&g.left<0?'<span class="tag warn">期限切れ</span>'
+      :g.left!=null?`<span class="tag">期限まで${g.left}日</span>`:''}
+    <span class="r">
+      <button class="btn sm ghost" onclick="go('proposal',{id:'${p.id}'})">提案書</button>
+    </span></h2>
+    <div class="body" style="padding-bottom:6px">
+      <div style="display:flex;height:8px;border-radius:2px;overflow:hidden;margin-bottom:8px">
+        ${bar.map(([,n,c])=>n?`<div style="width:${n/total*100}%;background:${c}"></div>`:'').join('')}
+      </div>
+      <div class="hint" style="display:flex;gap:16px;flex-wrap:wrap">
+        <span>提案先 <b>${g.rows.length}</b></span>
+        <span>未送付 <b>${g.unsent}</b></span>
+        <span>返信待ち <b>${g.waiting}</b></span>
+        <span>結果あり <b>${g.done.length}</b></span>
+        <span>受注 <b>${g.won.length}</b></span>
+        <span>提案金額 <b>${yen(g.expect)}</b></span>
+        <span>受注金額 <b>${yen(g.gotten)}</b></span>
+        <span>${g.firstSent?`提案開始 ${g.firstSent}`:'未送付'}${g.lastSent&&g.lastSent!==g.firstSent?` 〜 ${g.lastSent}`:''}</span>
+      </div>
+    </div>
+    <div class="body tight"><div class="scroll">
+    <table class="t"><thead><tr><th>施設名</th><th>担当</th><th>送付日</th><th class="num">経過</th>
+      <th>結果</th><th>理由 / メモ</th><th class="num">提案金額</th><th class="num">受注金額</th><th></th></tr></thead><tbody>
+    ${g.rows.map(x=>{
+      const late = x.waiting && x.waitDays>=S.settings.remind_days;
+      return `<tr>
+        <td><button class="link" onclick="go('customer',{id:'${x.cu.id}'})">${esc(x.cu.name)}</button></td>
+        <td class="w">${esc(userName(x.cu.sales_owner_id))}</td>
+        <td class="w">${x.d?`${x.d.sent_at}<div class="hint">${channelJa(x.d.channel)}</div>`
+                          :'<span class="hint">未送付</span>'}</td>
+        <td class="num">${x.d?`${x.waitDays}日${late&&!x.r?' <span class="tag warn">催促</span>':''}`:'—'}</td>
+        <td class="w">${x.r?`<span class="tag ${x.won?'on':''}">${STATUS_JA[x.r.result_code]}</span>
+            <div class="hint">${x.r.registered_at||''}</div>`
+          :x.d?'<span class="hint">返信待ち</span>':'<span class="hint">—</span>'}</td>
+        <td style="font-size:12.5px;max-width:240px">${x.r?esc([...(x.r.reason_codes||[]).map(c=>REASONS[c]||c), x.r.note].filter(Boolean).join(' / ')):''}</td>
+        <td class="num">${yen(x.amount)}</td>
+        <td class="num">${x.r&&x.won?yen(x.r.amount||0):'—'}</td>
+        <td class="w">
+          ${!x.d?`<button class="btn sm" onclick="sendModal('${x.t.id}')">送付を登録</button>`
+                :`<button class="btn sm ${x.r?'ghost':(late?'':'ghost')}" onclick="resultModal('${x.t.id}')">${x.r?'結果を修正':'結果を登録'}</button>`}
+          <button class="btn sm ghost" onclick="go('proposal',{id:'${x.t.id}'})">提案書</button>
+        </td></tr>`;
+    }).join('')}
+    </tbody></table></div></div>
+  </div>`;
+}
+const channelJa = c => ({mail:'メール',line:'LINE',visit:'訪問',fax:'FAX',other:'その他'}[c]||c||'');
+
 </script>
 <script>
 /* =========================================================================
