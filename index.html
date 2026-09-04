@@ -155,6 +155,71 @@ svg.chart{display:block;width:100%;height:auto}
 svg.chart text{font-size:10px;fill:var(--muted)}
 .sheet + .sheet{margin-top:26px;border-top:3px double var(--line)}
 
+/* ---------- 提案書 ---------- */
+.sheet2{
+  --navy:#16233F; --gold:#B08D4F; --gold-l:#D8C08A; --cream:#FBFAF7; --ink2:#2A3242;
+  background:#fff; max-width:820px; margin:0 auto 26px; color:var(--ink2);
+  border:1px solid var(--line); font-family:"Yu Mincho","YuMincho","Hiragino Mincho ProN","Noto Serif JP",serif;
+  -webkit-print-color-adjust:exact; print-color-adjust:exact;
+}
+.sheet2 .brandbar{background:var(--navy);color:#fff;text-align:center;padding:9px 10px;
+  font-family:"Helvetica Neue",Arial,sans-serif;font-size:12px;letter-spacing:.34em;font-weight:600}
+.sheet2 .inner{padding:30px 42px 34px}
+.sheet2 .ttl{border-left:3px solid var(--gold);padding-left:18px;margin-bottom:26px}
+.sheet2 .ttl h2{margin:0;font-size:34px;letter-spacing:.06em;color:var(--navy);font-weight:600;line-height:1.25}
+.sheet2 .ttl .sub{margin-top:6px;font-family:"Helvetica Neue",Arial,sans-serif;font-size:11.5px;
+  letter-spacing:.22em;color:var(--gold)}
+.sheet2 .sub .no{color:var(--ink2);letter-spacing:.1em}
+.sheet2 .addr{display:flex;align-items:flex-end;gap:14px;margin:22px 0 20px}
+.sheet2 .addr .to{font-size:19px;color:var(--navy);border-bottom:1px solid var(--navy);
+  min-width:270px;padding-bottom:3px}
+.sheet2 .addr .to.blank{color:#fff}
+.sheet2 .addr .on{font-size:17px;color:var(--navy);padding-bottom:3px}
+.sheet2 .addr .date{margin-left:auto;font-size:12.5px;color:#5A6478;padding-bottom:4px}
+.sheet2 .lead{font-size:13.5px;line-height:2.1;white-space:pre-wrap;margin-bottom:24px}
+
+.sheet2 .offer{border:1px solid var(--gold-l);border-radius:10px;background:
+  linear-gradient(135deg,#FEFDFB 0%,var(--cream) 55%,#F6F1E7 100%);
+  padding:24px 26px;margin-bottom:16px;position:relative;overflow:hidden}
+.sheet2 .offer h3{margin:0 0 12px;text-align:center;font-size:23px;color:var(--navy);
+  font-weight:600;letter-spacing:.02em;line-height:1.4}
+.sheet2 .qtytag{display:block;width:fit-content;margin:0 auto 16px;background:var(--gold);color:#fff;
+  border-radius:20px;padding:5px 22px;font-size:14px;letter-spacing:.06em}
+.sheet2 .prices{display:flex;align-items:center;justify-content:center;gap:20px;flex-wrap:wrap}
+.sheet2 .was{text-align:center;font-size:13px;color:#6C7488}
+.sheet2 .was b{display:block;font-size:19px;font-weight:400;text-decoration:line-through;
+  text-decoration-color:var(--gold);color:#6C7488;margin-top:2px}
+.sheet2 .arrow{color:var(--gold);font-size:24px;line-height:1}
+.sheet2 .now{text-align:center}
+.sheet2 .now .lb{font-size:13px;color:var(--navy);letter-spacing:.08em}
+.sheet2 .now .v{font-size:44px;color:var(--navy);letter-spacing:-.01em;line-height:1.1;font-weight:600}
+.sheet2 .now .v span{font-size:20px;font-weight:400}
+.sheet2 .off{width:104px;height:104px;border-radius:50%;background:var(--gold);color:#fff;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;
+  font-size:11.5px;line-height:1.35;flex:0 0 auto}
+.sheet2 .off b{font-size:23px;font-weight:600;letter-spacing:-.01em}
+
+.sheet2 .total{text-align:center;margin:26px 0 22px}
+.sheet2 .total .lb{display:flex;align-items:center;gap:14px;justify-content:center;
+  font-size:15px;color:var(--ink2);letter-spacing:.14em}
+.sheet2 .total .lb:before,.sheet2 .total .lb:after{content:"";height:1px;width:74px;background:var(--gold-l)}
+.sheet2 .total .v{font-size:44px;color:var(--navy);font-weight:600;letter-spacing:-.01em;margin-top:4px}
+
+.sheet2 .tiles{display:flex;border:1px solid #EDE6D8;border-radius:8px;background:#FDFCFA}
+.sheet2 .tile{flex:1;display:flex;gap:12px;align-items:flex-start;padding:16px 18px}
+.sheet2 .tile + .tile{border-left:1px solid #EDE6D8}
+.sheet2 .tile svg{flex:0 0 auto;margin-top:2px}
+.sheet2 .tile .k{font-size:13px;color:var(--navy);margin-bottom:3px}
+.sheet2 .tile .v{font-size:12px;color:#5A6478;line-height:1.65}
+.sheet2 .cta{background:var(--navy);color:#fff;border-radius:6px;margin:16px 0 22px;
+  padding:15px;text-align:center;font-size:16px;letter-spacing:.08em;
+  display:flex;align-items:center;justify-content:center;gap:12px}
+.sheet2 .sig{border-top:1px solid var(--gold-l);padding-top:14px;display:flex;gap:22px;align-items:flex-start}
+.sheet2 .sig .co{font-size:16px;color:var(--navy);border-right:1px solid #DFD8C8;padding-right:22px}
+.sheet2 .sig .co small{display:block;font-size:12px;color:#5A6478;margin-top:4px;font-weight:400}
+.sheet2 .sig .ct{font-size:12.5px;color:#5A6478;line-height:1.9;padding-top:3px}
+.sheet2 .items + .items{margin-top:14px}
+
 /* proposal (印刷) */
 .sheet{background:#fff;border:1px solid var(--line);border-radius:var(--r);padding:34px 38px;max-width:820px;margin:0 auto;color:#101820}
 .sheet h2.title{font-size:21px;margin:0 0 4px;letter-spacing:.02em}
@@ -171,6 +236,10 @@ svg.chart text{font-size:10px;fill:var(--muted)}
   main{padding:0}
   .sheet{border:none;border-radius:0;padding:0;max-width:none}
   .sheet + .sheet{page-break-before:always}
+  .sheet2{border:none;max-width:none;margin:0}
+  .sheet2 .inner{padding:0}
+  .sheet2 + .sheet2{page-break-before:always}
+  .sheet2 .offer,.sheet2 .cta,.sheet2 .brandbar,.sheet2 .off,.sheet2 .qtytag{-webkit-print-color-adjust:exact;print-color-adjust:exact}
   @page{size:A4;margin:16mm}
 }
 @media(max-width:820px){
@@ -230,6 +299,7 @@ const CONFIG = {
   company: {
     name:'リアス株式会社',
     dept:'営業部',
+    brand:'LIAS CO., LTD.',
     tel:'06-0000-0000',
     email:'info@example.co.jp',
     addr:'大阪府大阪市西区'
@@ -1689,37 +1759,80 @@ function proposalSheet(plan, items, t){
   const cu = t ? byId(S.t.customers, t.customer_id) : null;
   const body = plan.comment_text || genCustomerComment(plan, items, cu);
   const lead = items.map(i=>i.product_id?byId(S.t.products,i.product_id)?.lead_time:null).find(Boolean);
-  const showList = items.some(i=>i.list_price);
-  return `<div class="sheet">
-    <div style="display:flex;align-items:flex-start">
-      <div><h2 class="title">${TODAY.getFullYear()}年${TODAY.getMonth()+1}月 特別ご提案</h2>
-        <div class="note">提案番号：${esc(plan.id.slice(0,8).toUpperCase())}</div></div>
-      <div style="margin-left:auto;text-align:right" class="note">${d2s(TODAY)}<br><b style="font-size:14px">${esc(co.name)}</b></div>
-    </div>
-    <div class="to">${cu?esc(cu.name)+' 御中':'<span style="color:#8894A0">＿＿＿＿＿＿＿＿＿＿ 御中</span>'}</div>
-    <div class="lead">${esc(body)}</div>
-    <table class="p"><thead><tr><th>商品名</th><th>ご提案数量</th>${showList?'<th>通常価格</th>':''}<th>特別価格</th><th>ご提案金額</th></tr></thead><tbody>
-    ${items.map(i=>{
-      const info=itemInfo(i);
-      const q=(t&&t.qty)||i.qty_from||0;
-      return `<tr><td>${esc(info.name)}</td>
-        <td>${num(i.qty_from)}${i.qty_to?`〜${num(i.qty_to)}`:'以上'}${esc(info.unit)}</td>
-        ${showList?`<td style="text-align:right">${yen(i.list_price)}</td>`:''}
-        <td style="text-align:right"><b>${yen(i.offer_price)}</b></td>
-        <td style="text-align:right">${i.offer_price?yen(i.offer_price*q)+'〜':'—'}</td></tr>`;
-    }).join('')}</tbody></table>
-    <table class="p"><tbody>
-      <tr><th style="width:130px">有効期限</th><td>${plan.end_date?jdate(plan.end_date):'—'}</td></tr>
-      <tr><th>納期目安</th><td>${esc(plan.lead_time||lead||'ご発注後にご案内いたします')}</td></tr>
-      <tr><th>注意事項</th><td class="note">${esc(plan.note_text||'輸入商品のため、在庫状況により納期が変動する場合がございます。ご発注後のキャンセル・返品はお受けできません。')}</td></tr>
-    </tbody></table>
-    <div class="foot">
-      <b>${esc(co.name)}${co.dept?' '+esc(co.dept):''}</b><br>
-      ${co.addr?esc(co.addr)+'<br>':''}
-      担当：${cu?esc(userName(cu.sales_owner_id)):esc(S.me.name)}${co.tel?'　TEL：'+esc(co.tel):''}${co.email?'　E-mail：'+esc(co.email):''}
+  const total = sum(items.map(i=>(i.offer_price||0) * ((t&&t.qty)||i.qty_from||0)));
+
+  const ic = {
+    cal:`<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#B08D4F" stroke-width="1.3">
+      <rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>
+      <rect x="7" y="13" width="3" height="3" fill="#B08D4F" stroke="none"/></svg>`,
+    truck:`<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#B08D4F" stroke-width="1.3">
+      <rect x="1" y="6" width="13" height="10" rx="1"/><path d="M14 9h4l3 3v4h-7z"/>
+      <circle cx="6" cy="18" r="2"/><circle cx="18" cy="18" r="2"/></svg>`,
+    warn:`<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#B08D4F" stroke-width="1.3">
+      <path d="M12 3.5 22 20H2z" stroke-linejoin="round"/><path d="M12 10v4M12 16.6v.4"/></svg>`,
+    mail:`<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#D8C08A" stroke-width="1.4">
+      <rect x="2" y="5" width="20" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>`
+  };
+
+  return `<div class="sheet2">
+    <div class="brandbar">${esc(co.brand || co.name || '')}</div>
+    <div class="inner">
+      <div class="ttl">
+        <h2>${TODAY.getFullYear()}年${TODAY.getMonth()+1}月　特別ご提案</h2>
+        <div class="sub">MONTHLY PRIVATE OFFER　｜　<span class="no">${esc(plan.id.slice(0,8).toUpperCase())}</span></div>
+      </div>
+
+      <div class="addr">
+        <div class="to${cu?'':' blank'}">${cu?esc(cu.name):'&nbsp;'}</div>
+        <div class="on">御中</div>
+        <div class="date">${TODAY.getFullYear()}年${TODAY.getMonth()+1}月${TODAY.getDate()}日</div>
+      </div>
+
+      <div class="lead">${esc(body)}</div>
+
+      ${items.map(i=>{
+        const info = itemInfo(i);
+        const qty  = (t&&t.qty)||i.qty_from||0;
+        const offAmt = (i.list_price && i.offer_price) ? i.list_price - i.offer_price : 0;
+        const qtyLabel = i.qty_to ? `${num(i.qty_from)}〜${num(i.qty_to)}${info.unit}`
+                                  : `${num(i.qty_from)}${info.unit}以上`;
+        return `<div class="offer items">
+          <h3>${esc(info.name)}</h3>
+          ${i.qty_from?`<span class="qtytag">${qtyLabel}</span>`:''}
+          <div class="prices">
+            ${i.list_price?`<div class="was">通常価格<b>${yen(i.list_price)}</b></div>
+              <div class="arrow">&#10230;</div>`:''}
+            <div class="now"><div class="lb">特別価格</div>
+              <div class="v">${yen(i.offer_price)}<span> / ${esc(info.unit)}</span></div></div>
+            ${offAmt>0?`<div class="off">1${esc(info.unit)}あたり<b>${yen(offAmt)}</b>OFF</div>`:''}
+          </div>
+        </div>`;
+      }).join('')}
+
+      ${total?`<div class="total"><div class="lb">ご提案金額</div>
+        <div class="v">${yen(total)}〜</div></div>`:''}
+
+      <div class="tiles">
+        <div class="tile">${ic.cal}<div><div class="k">ご提案期限</div>
+          <div class="v">${plan.end_date?jdate(plan.end_date):'—'}</div></div></div>
+        <div class="tile">${ic.truck}<div><div class="k">納期目安</div>
+          <div class="v">${esc(plan.lead_time||lead||'ご発注後にご案内')}</div></div></div>
+        <div class="tile">${ic.warn}<div><div class="k">ご注意</div>
+          <div class="v">${esc(plan.note_text||'輸入商品のため在庫状況により納期が変動する場合がございます')}</div></div></div>
+      </div>
+
+      <div class="cta">${ic.mail}ご検討のうえ、担当者までご連絡ください</div>
+
+      <div class="sig">
+        <div class="co">${esc(co.name)}${co.dept?'　'+esc(co.dept):''}
+          ${co.addr?`<small>${esc(co.addr)}</small>`:''}</div>
+        <div class="ct">担当：${cu?esc(userName(cu.sales_owner_id)):esc(S.me.name)}${
+          co.tel?'　　TEL：'+esc(co.tel):''}${co.email?'　　E-mail：'+esc(co.email):''}</div>
+      </div>
     </div>
   </div>`;
 }
+
 function copyMailText(tid){
   const t=byId(S.t.offer_targets,tid), plan=byId(S.t.offer_plans,t.offer_plan_id), cu=byId(S.t.customers,t.customer_id);
   const items=S.t.offer_plan_items.filter(i=>i.offer_plan_id===plan.id);
@@ -2370,11 +2483,12 @@ VIEWS.settings = function(){
     <div class="grid g2" style="gap:10px">
       <label class="f" style="margin:0"><span>会社名</span><input type="text" id="co_name" value="${esc(CO().name||'')}"></label>
       <label class="f" style="margin:0"><span>部署名</span><input type="text" id="co_dept" value="${esc(CO().dept||'')}" placeholder="営業部"></label>
+      <label class="f" style="margin:0"><span>提案書上部の表記</span><input type="text" id="co_brand" value="${esc(CO().brand||'')}" placeholder="LIAS CO., LTD."></label>
       <label class="f" style="margin:0"><span>電話番号</span><input type="text" id="co_tel" value="${esc(CO().tel||'')}"></label>
       <label class="f" style="margin:0"><span>メールアドレス</span><input type="text" id="co_email" value="${esc(CO().email||'')}"></label>
     </div>
     <label class="f" style="margin:10px 0 0"><span>住所</span><input type="text" id="co_addr" value="${esc(CO().addr||'')}"></label>
-    <p class="hint" style="margin:10px 0 0">提案書の右上（会社名）とフッター（会社名・住所・TEL・メール）に出ます。
+    <p class="hint" style="margin:10px 0 0">提案書の最上部の帯（提案書上部の表記）とフッター（会社名・住所・TEL・メール）に出ます。
       担当者名は顧客の担当営業が入ります。空欄にした項目は印刷されません。</p>
   </div></div>
 
@@ -2419,7 +2533,7 @@ async function resetSettings(){ S.settings={...DEFAULT_SETTINGS}; await DB.saveS
 async function saveCompany(){
   const before={...CO()};
   S.settings.company={
-    name:$('#co_name').value.trim(), dept:$('#co_dept').value.trim(),
+    name:$('#co_name').value.trim(), dept:$('#co_dept').value.trim(), brand:$('#co_brand').value.trim(),
     tel:$('#co_tel').value.trim(), email:$('#co_email').value.trim(),
     addr:$('#co_addr').value.trim()
   };
